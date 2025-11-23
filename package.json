@@ -8,6 +8,7 @@
 	"dependencies": {
 		"got-scraping": "^4.1.2",
 		"js-yaml": "^4.1.1",
+		"proxy-chain": "^2.6.0",
 		"puppeteer": "^24.31.0",
 		"sharp": "^0.34.5"
 	}
