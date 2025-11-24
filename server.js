@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { gotScraping } from 'got-scraping';
 import config from './lib/config.js';
 import { initBrowser, generateImage, TEMP_DIR } from './lib/lmarena.js';
+import { MODEL_MAPPING, getModels } from './lib/models.js';
 
 const PORT = config.server.port || 3000;
 const AUTH_TOKEN = config.server.auth;
@@ -41,10 +42,10 @@ async function processQueue() {
             browserContext = await initBrowser(config);
         }
 
-        const { req, res, prompt, imagePaths } = task;
+        const { req, res, prompt, imagePaths, modelId } = task;
 
         // 调用核心生图逻辑
-        const result = await generateImage(browserContext, prompt, imagePaths);
+        const result = await generateImage(browserContext, prompt, imagePaths, modelId);
 
         // 清理临时图片
         for (const p of imagePaths) {
@@ -173,6 +174,13 @@ async function startServer() {
         const isQueueMode = SERVER_MODE === 'queue';
         const targetPath = isQueueMode ? '/v1/queue/join' : '/v1/chat/completions';
 
+        // 1. 模型列表接口 (OpenAI & Queue 模式通用)
+        if (req.method === 'GET' && req.url === '/v1/models') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(getModels()));
+            return;
+        }
+
         if (req.method === 'POST' && req.url.startsWith(targetPath)) {
             // --- SSE 设置 (仅 Queue 模式) ---
             let sseHelper = null;
@@ -275,6 +283,24 @@ async function startServer() {
                     }
 
                     prompt = prompt.trim();
+
+                    // 解析模型参数
+                    let modelId = null;
+                    if (data.model) {
+                        if (MODEL_MAPPING[data.model]) {
+                            modelId = MODEL_MAPPING[data.model];
+                            console.log(`>>> [Server] 触发模型: ${data.model}, UUID: ${modelId}`);
+                        } else {
+                            const errorMsg = `Invalid model: ${data.model}`;
+                            console.warn(`>>> [Server] ${errorMsg}`);
+                            if (isQueueMode) { sseHelper.send('error', { msg: errorMsg }); sseHelper.end(); }
+                            else { res.writeHead(400); res.end(JSON.stringify({ error: errorMsg })); }
+                            return;
+                        }
+                    } else {
+                        console.log('>>> [Server] 未指定模型，使用网页默认值');
+                    }
+
                     console.log(`>>> [Queue] 请求入队 - Prompt: ${prompt}, Images: ${imagePaths.length}`);
 
                     if (isQueueMode) {
@@ -282,7 +308,7 @@ async function startServer() {
                     }
 
                     // 将任务加入队列
-                    queue.push({ req, res, prompt, imagePaths, sse: sseHelper });
+                    queue.push({ req, res, prompt, imagePaths, sse: sseHelper, modelId });
 
                     // 触发队列处理
                     processQueue();

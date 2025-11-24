@@ -146,6 +146,7 @@ curl -X POST http://127.0.0.1:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-key" \
   -d '{
+    "model": "gemini-3-pro-image-preview",
     "messages": [
       {
         "type": "text",
@@ -154,6 +155,14 @@ curl -X POST http://127.0.0.1:3000/v1/chat/completions \
     ]
   }'
 ```
+
+> **关于 `model` 参数**：
+> - **必填**：必须填写支持的模型名称，否则将使用 LMArena 网页默认模型
+> - **查看可用模型**：
+>   - 方式 1：访问 `/v1/models` 接口查询
+>   - 方式 2：直接查看 `lib/models.js` 文件
+> - **示例模型**：`seedream-4-high-res-fal`、`gemini-3-pro-image-preview`、`dall-e-3` 等
+
 
 **响应格式**
 ```json
@@ -172,6 +181,45 @@ curl -X POST http://127.0.0.1:3000/v1/chat/completions \
   }]
 }
 ```
+
+#### 获取可用模型列表
+
+**请求端点**
+```
+GET http://127.0.0.1:3000/v1/models
+```
+
+**请求示例**
+```bash
+curl -X GET http://127.0.0.1:3000/v1/models \
+  -H "Authorization: Bearer your-secret-key"
+```
+
+**响应格式**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "seedream-4-high-res-fal",
+      "object": "model",
+      "created": 1732456789,
+      "owned_by": "lmarena"
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "object": "model",
+      "created": 1732456789,
+      "owned_by": "lmarena"
+    }
+  ]
+}
+```
+
+> **说明**：
+> - 此接口在 **OpenAI 兼容模式** 和 **Queue 队列模式** 下均可用
+> - `created` 字段为当前请求时的时间戳
+> - 完整模型列表可在 `lib/models.js` 文件中查看
 
 #### Queue 队列模式（SSE）（推荐）
 
@@ -228,10 +276,13 @@ const req = http.request(options, (res) => {
 });
 
 req.write(JSON.stringify({
+  model: "gemini-3-pro-image-preview",
   messages: [{ role: "user", content: "a cute cat" }]
 }));
 req.end();
 ```
+
+> **提示**：Queue 模式同样支持 `model` 参数，用法与 OpenAI 兼容模式一致。
 
 #### 带图片的请求
 
@@ -242,6 +293,7 @@ req.end();
 **请求示例**
 ```json
 {
+  "model": "gemini-3-pro-image-preview",
   "messages": [{
     "role": "user",
     "content": [
@@ -279,6 +331,7 @@ lmarena/
 ├── package.json       # 项目依赖
 ├── lib/
 │   ├── lmarena.js     # 核心生图逻辑 (Puppeteer 操作)
+│   ├── models.js      # 模型映射配置
 │   ├── config.js      # 配置加载器
 │   ├── genApiKey.js   # API 密钥生成工具
 │   └── test.js        # 功能测试脚本
