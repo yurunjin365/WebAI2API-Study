@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.1.1] - 2024-11-24
+
+### Fixed
+- **指定模型**
+  - 修复因错误的UUID映射导致的 gemini-3-pro-image-preview 模型触发HTTP500的 BUG
+
 
 ## [1.1.0] - 2024-11-24
 
