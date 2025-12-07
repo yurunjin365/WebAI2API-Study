@@ -62,6 +62,9 @@ LMArenaImagenAutomator 是一个基于 Playwright + Camoufox 的自动化图像�
 
    # 标准模式
    npm start
+
+   # Linux创建虚拟显示器到VNC
+   npm start -- -xvfb -vnc
    ```
 
 5. **接口测试 (可选)**
@@ -74,7 +77,9 @@ LMArenaImagenAutomator 是一个基于 Playwright + Camoufox 的自动化图像�
 
 ### ⚠️ 首次使用必读
 
-1. **首次启动**：请使用 `npm start -- -login` 进入登录模式（关闭无头模式）。
+1. **首次启动**：
+   - 请使用 `npm start -- -login` 进入登录模式（关闭无头模式）。
+   - Linux用户使用 `npm start -- -xvfb -vnc` 进入登录模式且创建虚拟显示器到VNC。
 2. **完成初始化**：
    - 手动登录账号。
    - 在输入框发送任意消息，触发并完成 CloudFlare/reCAPTCHA 验证及服务条款同意。
@@ -315,15 +320,23 @@ curl -X GET http://127.0.0.1:3000/v1/models \
 **方法二：Xvfb + X11VNC (推荐)**
 使用虚拟显示器运行程序，并通过 VNC 远程查看。
 
-1. **启动虚拟显示器并运行程序** (屏幕号 99 可按需修改):
+1. **使用内置命令启动 (简便)**
    ```bash
-   xvfb-run --server-num=99 --server-args="-ac -screen 0 1920x1080x24" npm start
+   npm start -- -xvfb -vnc
    ```
 
-2. **将虚拟显示器映射至 VNC**:
-   ```bash
-   x11vnc -display :99 -localhost -nopw -once -noxdamage -ncache 10 -forever
-   ```
+2. **手动配置**
+   如果内置命令无法满足需求，可手动分步执行：
+   
+   a. **启动虚拟显示器并运行程序** (屏幕号 99 可按需修改):
+      ```bash
+      xvfb-run --server-num=99 --server-args="-ac -screen 0 1920x1080x24" npm start
+      ```
+
+   b. **将虚拟显示器映射至 VNC**:
+      ```bash
+      x11vnc -display :99 -localhost -nopw -once -noxdamage -ncache 10 -forever
+      ```
 
 3. **建立 SSH 隧道连接 VNC** (安全推荐):
    ```bash
