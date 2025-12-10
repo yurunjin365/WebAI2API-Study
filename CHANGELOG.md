@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-12-11
+
+### Added
+- **支持新网站**
+  - 初步支持 zAI/zai.is 且支持自动续登
+
+### Fixed
+- **浏览器功能**
+  - 修复 Gemini Business 自动续登监听器被多次触发的问题
+  - 修复拟人输入在 MacOS 环境下提示词无法全选删除的问题
+
 ## [2.1.0] - 2025-12-09
 
 ### Changed
