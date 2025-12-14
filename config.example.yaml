@@ -14,36 +14,97 @@ server:
     mode: "comment"
 
 backend:
-  # 适配器设置
-  # - lmarena (LMArena)
-  # - gemini (Gemini 网页版)
-  # - gemini_biz (Gemini Enterprise Business)
-  # - nanobananafree_ai (Nano Banana Free)
-  # - zai_is (zAI)
-  type: lmarena
+  # ========================================
+  # Pool 配置
+  # ========================================
+  pool:
+    # 全局调度策略:
+    # - least_busy (推荐): 优先分配给当前任务最少的 Worker
+    # - round_robin: 轮询分配 (A -> B -> C -> A)
+    # - random: 随机分配
+    # 任务分发时，会把所有 Instance 下的所有 Worker 扁平化看待
+    strategy: least_busy
 
-  # 聚合模式设置 (优先级高于 type)
-  # 启用后，系统将复用单个浏览器标签页处理所有后端任务
-  merge:
-    enable: false
-    # 聚合列表 (按优先级排序，模型匹配时优先使用靠前的适配器)
-    type:
-      - zai_is
-      - lmarena
-    # 挂机监控
-    monitor: zai_is
+    # ========================================
+    # 浏览器实例列表
+    # ========================================
+    # 每个 Instance 代表一个独立的浏览器进程 (Context + UserData + Proxy)
+    # 登录模式:
+    #   npm start -- -login              启动第一个 Worker 进行登录
+    #   npm start -- -login=workerName   启动指定名称的 Worker 进行登录
+    # 注意: Worker 名称在全局必须唯一
+    # ========================================
+    instances:
+      # ------------------------------------------------
+      # [实例 1] 默认浏览器实例
+      # ------------------------------------------------
+      - name: "browser_default"        # 实例 ID (用于日志显示和Cookie获取)
+        # userDataMark 不设置时，数据存放在 data/camoufoxUserData
+        # 同一实例下的所有 Worker 共享浏览器数据和登录状态
+        # 使用 Google OAuth 等统一登录时，只需登录一次即可用于所有 Worker
+        
+        # 该浏览器实例具备的能力 (适配器列表)
+        # 相当于在这个浏览器里打开了不同的标签页
+        workers:
+          - name: "default"            # 唯一标识 (用于登录模式和日志显示)
+            type: lmarena              # 适配器类型
 
-  # Gemini Business 设置
-  geminiBiz:
-    # 入口链接
-    # 示例: "https://business.gemini.google/home/cid/8888a888-b6e0-88be-86e1-888cf3ee8cf4"
-    entryUrl: ""
+      # ------------------------------------------------
+      # 以下为多实例配置示例 (默认注释)
+      # ------------------------------------------------
+      
+      # [实例 2] 独立数据目录 + 专属代理
+      # - name: "browser_us_01"
+      #   userDataMark: "us_01"        # 数据目录: data/camoufoxUserData_us_01
+      #   
+      #   # 实例级代理 (该实例下所有 Worker 共享此代理)
+      #   proxy:
+      #     enable: true
+      #     type: socks5
+      #     host: 192.168.1.10
+      #     port: 1080
+      #     user: myuser               # 可选认证
+      #     passwd: mypassword
+      #
+      #   workers:
+      #     - name: "us_lmarena"
+      #       type: lmarena
+      #     
+      #     - name: "us_zai"
+      #       type: zai_is
+      #     
+      #     # 聚合类型 Worker (单标签多后端)
+      #     - name: "us_merged"
+      #       type: merge
+      #       mergeTypes: [gemini_biz, nanobananafree_ai]
+      #       mergeMonitor: gemini_biz  # 空闲时挂机监控的后端 (可选，留空则不启用)
+
+      # [实例 3] 强制直连 (不使用代理)
+      # - name: "browser_direct"
+      #   userDataMark: "direct"
+      #   proxy:
+      #     enable: false              # 即使有全局代理也不使用
+      #
+      #   workers:
+      #     - name: "direct_gemini"
+      #       type: gemini_biz
+
+  # ========================================
+  # 适配器专属配置 (按需填写)
+  # ========================================
+  adapter:
+    # Gemini Business 设置
+    gemini_biz:
+      # 入口URL
+      # 示例: "https://business.gemini.google/home/cid/8888a888-b6e0-88be-86e1-888cf3ee8cf4"
+      entryUrl: ""
+      
 
 queue:
-  # 最大排队数
-  # 仅对未开启流式保活模式时做出限制，非必要不建议更改
-  # 因客户端可能有超时保护，队列大于2是一定会触发超时保护的
-  maxQueueSize: 2
+  # 队列缓冲区大小（非流式请求的额外排队数）
+  # 实际队列上限 = Workers数量 + queueBuffer
+  # 设为 0 则不限制非流式请求数量
+  queueBuffer: 2
   # 图片数量上限 
   # 网页最多支持10个附件，如果设置大于10则直接丢弃超出10的图片
   imageLimit: 5
@@ -57,7 +118,7 @@ browser:
   # 是否启用无头模式
   headless: false
   
-  # 代理设置
+  # [全局代理] 如果 Instance 没有独立配置代理，将使用此配置
   proxy:
     # 是否启用代理
     enable: false

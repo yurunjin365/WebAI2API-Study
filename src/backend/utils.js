@@ -199,19 +199,26 @@ export function normalizeHttpError(response, content = null) {
  * 根据 camoufoxFingerprints.json 动态生成请求头，保持与浏览器指纹一致
  * 
  * @param {string} url - 图片 URL
- * @param {object} config - 配置对象（需包含 proxy 配置）
+ * @param {object} options - 下载选项
+ * @param {object} [options.proxyConfig] - Worker 级代理配置
+ * @param {string} [options.userDataDir] - 用户数据目录（用于读取对应的指纹文件）
  * @returns {Promise<{ image?: string, error?: string }>} 下载结果
  */
-export async function downloadImage(url, config) {
+export async function downloadImage(url, options = {}) {
     // 动态导入依赖
     const { gotScraping } = await import('got-scraping');
     const fs = await import('fs');
     const path = await import('path');
-    const { getProxyConfig, getHttpProxy } = await import('../utils/proxy.js');
+    const { getHttpProxy } = await import('../utils/proxy.js');
+
+    const { proxyConfig = null, userDataDir } = options;
 
     try {
-        // 读取指纹文件获取浏览器信息
-        const fingerprintPath = path.join(process.cwd(), 'data', 'camoufoxFingerprints.json');
+        // 读取指纹文件获取浏览器信息（优先使用 userDataDir 内的指纹）
+        let fingerprintPath = userDataDir
+            ? path.join(userDataDir, 'fingerprint.json')
+            : path.join(process.cwd(), 'data', 'camoufoxUserData', 'fingerprint.json');
+
         let browserName = 'firefox';
         let browserMinVersion = 100;
         let os = 'windows';
@@ -242,8 +249,7 @@ export async function downloadImage(url, config) {
             }
         }
 
-        // 获取代理配置
-        const proxyConfig = getProxyConfig(config);
+        // 获取代理配置（直接使用传入的 proxyConfig）
         const proxyUrl = await getHttpProxy(proxyConfig);
 
         const options = {

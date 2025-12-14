@@ -3,7 +3,6 @@
  * @description 通过自动化方式驱动 zai.is 网页端生成图片，并将结果转换为统一的后端返回结构。
  */
 
-import { initBrowserBase } from '../../browser/launcher.js';
 import {
     sleep,
     safeClick,
@@ -164,26 +163,6 @@ async function waitForInputWithAuth(page, options = {}) {
     }
 }
 
-/**
- * 初始化浏览器
- * @param {object} config - 配置对象
- * @returns {Promise<{browser: object, page: object, client: object}>}
- */
-async function initBrowser(config) {
-    // 输入框验证逻辑（使用公共函数）
-    const waitInputValidator = async (page) => {
-        await waitForInputWithAuth(page);
-    };
-
-    const base = await initBrowserBase(config, {
-        userDataDir: config.paths.userDataDir,
-        targetUrl: TARGET_URL,
-        productName: 'Zai.is',
-        waitInputValidator,
-        navigationHandler: handleDiscordAuth
-    });
-    return { ...base, config };
-}
 
 /**
  * 生成图片
@@ -395,7 +374,10 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
         logger.info('适配器', `已提取图片链接: ${imageUrl}`, meta);
 
         // 下载图片
-        const downloadResult = await downloadImage(imageUrl, config);
+        const downloadResult = await downloadImage(imageUrl, {
+            proxyConfig: context.proxyConfig,
+            userDataDir: context.userDataDir
+        });
         if (downloadResult.error) {
             return downloadResult;
         }
@@ -418,4 +400,40 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
     }
 }
 
-export { initBrowser, generateImage, handleDiscordAuth };
+/**
+ * 适配器 manifest
+ */
+export const manifest = {
+    id: 'zai_is',
+    displayName: 'zAI (zai.is)',
+
+    // 入口 URL
+    getTargetUrl(config, workerConfig) {
+        return TARGET_URL;
+    },
+
+    // 模型列表
+    models: [
+        { id: 'gemini-3-pro-image-preview', imagePolicy: 'optional' },
+        { id: 'gemini-2.5-flash-image', imagePolicy: 'optional' }
+    ],
+
+    // 模型 ID 解析（直通）
+    resolveModelId(modelKey) {
+        const model = this.models.find(m => m.id === modelKey);
+        return model ? model.id : null;
+    },
+
+    // 输入框就绪校验
+    async waitInput(page, ctx) {
+        await waitForInputWithAuth(page);
+    },
+
+    // 导航处理器
+    navigationHandlers: [handleDiscordAuth],
+
+    // 核心生图方法
+    generateImage
+};
+
+export { generateImage };

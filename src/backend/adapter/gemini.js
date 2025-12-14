@@ -3,7 +3,6 @@
  * @description 通过自动化方式驱动 Gemini 网页端生成图片，并将结果转换为统一的后端返回结构。
  */
 
-import { initBrowserBase } from '../../browser/launcher.js';
 import {
     sleep,
     safeClick,
@@ -19,27 +18,6 @@ import { logger } from '../../utils/logger.js';
 // --- 配置常量 ---
 const TARGET_URL = 'https://gemini.google.com/app?hl=en';
 
-/**
- * 初始化浏览器会话
- * @param {object} config - 全局配置对象
- * @returns {Promise<{browser: object, page: object, config: object}>}
- */
-async function initBrowser(config) {
-    // 输入框验证逻辑
-    const waitInputValidator = async (page) => {
-        await page.getByRole('textbox').waitFor({ timeout: 60000 });
-        await safeClick(page, page.getByRole('textbox'), { bias: 'input' });
-        await sleep(500, 1000);
-    };
-
-    const base = await initBrowserBase(config, {
-        userDataDir: config.paths.userDataDir,
-        targetUrl: TARGET_URL,
-        productName: 'Gemini',
-        waitInputValidator
-    });
-    return { ...base, config };
-}
 
 /**
  * 执行生图任务
@@ -186,4 +164,47 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
     }
 }
 
-export { initBrowser, generateImage };
+/**
+ * 输入框就绪校验
+ * @param {import('playwright-core').Page} page
+ */
+async function waitInputValidator(page) {
+    await page.getByRole('textbox').waitFor({ timeout: 60000 });
+    await safeClick(page, page.getByRole('textbox'), { bias: 'input' });
+    await sleep(500, 1000);
+}
+
+/**
+ * 适配器 manifest
+ */
+export const manifest = {
+    id: 'gemini',
+    displayName: 'Gemini (Consumer)',
+
+    // 入口 URL
+    getTargetUrl(config, workerConfig) {
+        return TARGET_URL;
+    },
+
+    // 模型列表
+    models: [
+        { id: 'gemini-3-pro-image-preview', imagePolicy: 'optional' }
+    ],
+
+    // 模型 ID 解析（直通）
+    resolveModelId(modelKey) {
+        const model = this.models.find(m => m.id === modelKey);
+        return model ? model.id : null;
+    },
+
+    // 输入框就绪校验
+    waitInput: waitInputValidator,
+
+    // 无需导航处理器
+    navigationHandlers: [],
+
+    // 核心生图方法
+    generateImage
+};
+
+export { generateImage };

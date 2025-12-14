@@ -3,7 +3,6 @@
  * @description 通过自动化方式驱动 Gemini Business 网页端生成图片，并将结果转换为统一的后端返回结构。
  */
 
-import { initBrowserBase } from '../../browser/launcher.js';
 import {
     sleep,
     safeClick,
@@ -146,43 +145,6 @@ async function waitForInputWithAccountChooser(page, options = {}) {
     }
 }
 
-/**
- * 初始化浏览器
- * @param {object} config - 配置对象
- * @param {object} [config.browser] - Browser 配置
- * @param {boolean} [config.browser.headless] - 是否开启 Headless 模式
- * @param {string} [config.browser.path] - Browser 可执行文件路径
- * @param {object} [config.browser.proxy] - 代理配置
- * @param {object} [config.backend] - 后端配置
- * @param {object} [config.backend.geminiBiz] - Gemini Biz 配置
- * @param {string} config.backend.geminiBiz.entryUrl - Gemini entry URL (必需)
- * @returns {Promise<{browser: object, page: object, client: object}>}
- */
-async function initBrowser(config) {
-    // 从配置读取 Gemini Biz entry URL
-    const backendCfg = config.backend || {};
-    const geminiCfg = backendCfg.geminiBiz || {};
-    const targetUrl = geminiCfg.entryUrl;
-
-    if (!targetUrl) {
-        logger.error('适配器', '未找到GeminiBiz的入口URL, 请在配置文件中配置后再启动', meta);
-        throw new Error('GeminiBiz backend missing entry URL: backend.geminiBiz.entryUrl');
-    }
-
-    // 输入框验证逻辑（使用公共函数）
-    const waitInputValidator = async (page) => {
-        await waitForInputWithAccountChooser(page);
-    };
-
-    const base = await initBrowserBase(config, {
-        userDataDir: config.paths.userDataDir,
-        targetUrl,
-        productName: 'Gemini Enterprise Business',
-        waitInputValidator,
-        navigationHandler: handleAccountChooser
-    });
-    return { ...base, config };
-}
 
 /**
  * 生成图片
@@ -196,7 +158,8 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
     const { page, config } = context;
 
     try {
-        const targetUrl = config.backend?.geminiBiz?.entryUrl;
+        // 支持新路径 adapter.gemini_biz.entryUrl，向下兼容旧路径 geminiBiz.entryUrl
+        const targetUrl = config.backend?.adapter?.gemini_biz?.entryUrl || config.backend?.geminiBiz?.entryUrl;
 
         if (!targetUrl) {
             throw new Error('GeminiBiz backend missing entry URL');
@@ -353,4 +316,39 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
     }
 }
 
-export { initBrowser, generateImage, handleAccountChooser };
+export { generateImage };
+
+/**
+ * 适配器 manifest
+ */
+export const manifest = {
+    id: 'gemini_biz',
+    displayName: 'Gemini Business',
+
+    // 入口 URL (从配置读取，支持新旧路径)
+    getTargetUrl(config, workerConfig) {
+        return config?.backend?.adapter?.gemini_biz?.entryUrl || config?.backend?.geminiBiz?.entryUrl || null;
+    },
+
+    // 模型列表
+    models: [
+        { id: 'gemini-3-pro-image-preview', imagePolicy: 'optional' }
+    ],
+
+    // 模型 ID 解析（直通）
+    resolveModelId(modelKey) {
+        const model = this.models.find(m => m.id === modelKey);
+        return model ? model.id : null;
+    },
+
+    // 输入框就绪校验
+    async waitInput(page, ctx) {
+        await waitForInputWithAccountChooser(page);
+    },
+
+    // 导航处理器
+    navigationHandlers: [handleAccountChooser],
+
+    // 核心生图方法
+    generateImage
+};

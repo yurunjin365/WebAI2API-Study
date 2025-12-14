@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2025-12-14
+
+### Added
+- **支持多窗口多账号**
+  - 支持多个窗口并行进行任务，支持浏览器实例之间的数据隔离
+  - Cookies 获取接口可指定浏览器实例
+
+### Changed
+- **配置文件重构**
+  - 配置文件格式几乎重构，请重新复制模板修改
+
+
 ## [2.4.0] - 2025-12-13
 
 ### Added

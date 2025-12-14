@@ -1,269 +1,141 @@
 /**
  * @fileoverview 后端适配器入口
- * @description 负责加载配置、准备运行目录（用户数据/临时目录），并根据配置返回“单后端”或“聚合后端”的统一接口。
+ * @description 基于 Pool 架构统一管理多浏览器实例，提供统一的对外接口。
  *
  * 对外统一能力：
- * - `initBrowser(cfg)`
+ * - `initBrowser(cfg)` → 初始化 Pool
  * - `generateImage(ctx, prompt, imagePaths, modelId, meta)`
  * - `resolveModelId(modelKey)` / `getModels()` / `getImagePolicy(modelKey)`
+ * - `getCookies(workerName, domain)` - 获取指定 Worker 的 Cookies
  */
 
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from '../utils/config.js';
-import { initBrowserBase } from '../browser/launcher.js';
-import * as modelsModule from './models.js';
+import { PoolManager } from './pool.js';
 import { logger } from '../utils/logger.js';
 
-// 导入适配器
-import * as lmarenaBackend from './adapter/lmarena.js';
-import * as geminiBackend from './adapter/gemini_biz.js';
-import * as geminiConsumerBackend from './adapter/gemini.js';
-import * as nanobananafreeBackend from './adapter/nanobananafree_ai.js';
-import * as zaiIsBackend from './adapter/zai_is.js';
-
 // --- 集中管理的路径常量 ---
-const USER_DATA_DIR = path.join(process.cwd(), 'data', 'camoufoxUserData');
 const TEMP_DIR = path.join(process.cwd(), 'data', 'temp');
 
-// 确保必要目录存在
-if (!fs.existsSync(USER_DATA_DIR)) {
-    fs.mkdirSync(USER_DATA_DIR, { recursive: true });
-}
+// 确保临时目录存在
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-// 适配器映射表
-const ADAPTER_MAP = {
-    'gemini_biz': geminiBackend,
-    'gemini': geminiConsumerBackend,
-    'nanobananafree_ai': nanobananafreeBackend,
-    'zai_is': zaiIsBackend,
-    'lmarena': lmarenaBackend
-};
+// 全局 PoolManager 实例
+let poolManager = null;
 
-// 2. 聚合后端模式实现（跨调用复用全局 Page）
-const MergedBackend = {
-    name: 'merge',
-    _globalBrowser: null,
-    _globalPage: null,
-    _config: null,  // 保存配置引用
-
-    initBrowser: async (cfg) => {
-        MergedBackend._config = cfg;  // 保存配置
-        if (MergedBackend._globalPage && !MergedBackend._globalPage.isClosed()) {
-            return { browser: MergedBackend._globalBrowser, page: MergedBackend._globalPage, config: cfg };
-        }
-
-        const activeTypes = cfg.backend.merge.type || [];
-        const handlers = [];
-
-        // 收集导航处理器
-        for (const type of activeTypes) {
-            const adapter = ADAPTER_MAP[type];
-            if (type === 'gemini_biz' && adapter.handleAccountChooser) handlers.push(adapter.handleAccountChooser);
-            if (type === 'zai_is' && adapter.handleDiscordAuth) handlers.push(adapter.handleDiscordAuth);
-        }
-
-        // 聚合处理器
-        const aggregatedHandler = async (page) => {
-            for (const handler of handlers) {
-                try { await handler(page); } catch (e) { }
-            }
-        };
-
-        logger.info('适配器', `[后端聚合] 启动全局浏览器，聚合: ${activeTypes.join(', ')}`);
-
-        const base = await initBrowserBase(cfg, {
-            userDataDir: cfg.paths.userDataDir,
-            targetUrl: 'about:blank',
-            productName: '聚合模式',
-            navigationHandler: aggregatedHandler,
-            waitInputValidator: async () => { }
-        });
-
-        MergedBackend._globalBrowser = base.browser;
-        MergedBackend._globalPage = base.page;
-        return { ...base, config: cfg };
-    },
-
-    generateImage: async (ctx, prompt, paths, modelId, meta) => {
-        if (!modelId || !modelId.includes('|')) return { error: 'Invalid aggregated model ID' };
-
-        const [adapterType, realId] = modelId.split('|');
-        const adapter = ADAPTER_MAP[adapterType];
-
-        if (!adapter) return { error: `Adapter not found: ${adapterType}` };
-
-        logger.info('适配器', `[后端聚合] 路由至: ${adapterType}, Model: ${realId}`, meta);
-
-        // 构造子上下文：复用全局 Page，但传入当前 config（适配器会读取 config.backend.geminiBiz 等字段）
-        const subContext = {
-            ...ctx,
-            page: MergedBackend._globalPage,
-            config: ctx.config
-        };
-
-        return adapter.generateImage(subContext, prompt, paths, realId, meta);
-    },
-
-    resolveModelId: (modelKey) => {
-        const types = MergedBackend._config.backend.merge.type;
-
-        // 支持 backend/model 格式指定后端 (如 lmarena/seedream-4.5)
-        if (modelKey.includes('/')) {
-            const [specifiedType, actualModel] = modelKey.split('/', 2);
-            if (ADAPTER_MAP[specifiedType] && types.includes(specifiedType)) {
-                const realId = modelsModule.resolveModelId(specifiedType, actualModel);
-                if (realId) return `${specifiedType}|${realId}`;
-            }
-            return null; // 指定的后端不存在或不在聚合列表中
-        }
-
-        // 按优先级自动匹配
-        for (const type of types) {
-            const realId = modelsModule.resolveModelId(type, modelKey);
-            if (realId) return `${type}|${realId}`;
-        }
-        return null;
-    },
-
-    getModels: () => {
-        const types = MergedBackend._config.backend.merge.type;
-        const allModels = [];
-        const seenIds = new Set();
-
-        // 1. 添加按优先级自动选择的模型 (去重)
-        for (const type of types) {
-            const result = modelsModule.getModelsForBackend(type);
-            if (result?.data) {
-                for (const m of result.data) {
-                    if (!seenIds.has(m.id)) {
-                        seenIds.add(m.id);
-                        allModels.push({
-                            ...m,
-                            owned_by: type  // 标记优先匹配的后端
-                        });
-                    }
-                }
-            }
-        }
-
-        // 2. 添加带前缀的模型 (backend/model 格式，用于指定后端)
-        for (const type of types) {
-            const result = modelsModule.getModelsForBackend(type);
-            if (result?.data) {
-                for (const m of result.data) {
-                    const prefixedId = `${type}/${m.id}`;
-                    allModels.push({
-                        ...m,
-                        id: prefixedId,
-                        owned_by: type
-                    });
-                }
-            }
-        }
-
-        return { object: 'list', data: allModels };
-    },
-
-    getImagePolicy: (modelKey) => {
-        const types = MergedBackend._config.backend.merge.type;
-
-        // 支持 backend/model 格式
-        if (modelKey.includes('/')) {
-            const [specifiedType, actualModel] = modelKey.split('/', 2);
-            if (ADAPTER_MAP[specifiedType] && types.includes(specifiedType)) {
-                return modelsModule.getImagePolicy(specifiedType, actualModel);
-            }
-            return 'optional';
-        }
-
-        // 按优先级查找
-        for (const type of types) {
-            const realId = modelsModule.resolveModelId(type, modelKey);
-            if (realId) return modelsModule.getImagePolicy(type, modelKey);
-        }
-        return 'optional';
-    },
-
-    /**
-     * 空闲时导航到监控页面（用于自动续签 Cookie）
-     * @param {object} cfg - 配置对象
-     * @returns {Promise<void>}
-     */
-    navigateToMonitor: async (cfg) => {
-        const monitorType = cfg.backend.merge?.monitor;
-        if (!monitorType) return;
-
-        const page = MergedBackend._globalPage;
-        if (!page || page.isClosed()) return;
-
-        // 适配器目标 URL 映射
-        const TARGET_URLS = {
-            'zai_is': 'https://zai.is/',
-            'lmarena': 'https://lmarena.ai/',
-            'gemini_biz': cfg.backend.geminiBiz?.entryUrl || 'https://aistudio.google.com/',
-            'gemini': 'https://gemini.google.com/',
-            'nanobananafree_ai': 'https://nanobananafree.ai/'
-        };
-
-        const targetUrl = TARGET_URLS[monitorType];
-        if (!targetUrl) {
-            logger.warn('适配器', `[Monitor] 未知的监控类型: ${monitorType}`);
-            return;
-        }
-
-        // 检查当前是否已在目标网站
-        const currentUrl = page.url();
-        if (currentUrl.includes(new URL(targetUrl).hostname)) {
-            logger.debug('适配器', `[Monitor] 已在目标网站: ${monitorType}`);
-            return;
-        }
-
-        logger.info('适配器', `[Monitor] 空闲中，跳转至: ${monitorType} (${targetUrl})`);
-        try {
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            // 全局 navigationHandler 会自动处理登录
-        } catch (e) {
-            logger.warn('适配器', `[Monitor] 跳转失败: ${e.message}`);
-        }
-    }
-};
-
+/**
+ * 获取后端接口
+ * @returns {object} 后端统一接口
+ */
 export function getBackend() {
     const config = loadConfig();
 
-    // 将路径常量注入 config 对象
+    // 将临时目录路径注入 config 对象
     config.paths = {
-        userDataDir: USER_DATA_DIR,
         tempDir: TEMP_DIR
     };
 
-    // 单一后端模式实现（基于当前配置构建）
-    const SingleBackend = {
-        name: config.backend.type,
+    return {
+        name: 'pool',
+        config,
+        TEMP_DIR,
 
+        /**
+         * 初始化 Pool
+         * @param {object} cfg - 配置对象
+         * @returns {Promise<{poolManager: PoolManager, config: object}>}
+         */
         initBrowser: async (cfg) => {
-            const adapter = ADAPTER_MAP[cfg.backend.type] || lmarenaBackend;
-            return adapter.initBrowser(cfg);
+            if (poolManager && poolManager.initialized) {
+                return { poolManager, config: cfg };
+            }
+
+            poolManager = new PoolManager(cfg);
+            await poolManager.initAll();
+
+            return { poolManager, config: cfg };
         },
 
+        /**
+         * 生成图片
+         * @param {object} ctx - 浏览器上下文 (来自 initBrowser 返回)
+         * @param {string} prompt - 提示词
+         * @param {string[]} paths - 图片路径
+         * @param {string} modelId - 模型 ID
+         * @param {object} meta - 元信息
+         */
         generateImage: async (ctx, prompt, paths, modelId, meta) => {
-            const adapter = ADAPTER_MAP[config.backend.type] || lmarenaBackend;
-            return adapter.generateImage(ctx, prompt, paths, modelId, meta);
+            if (!poolManager) {
+                return { error: 'Pool 未初始化' };
+            }
+            return await poolManager.generateImage(ctx, prompt, paths, modelId, meta);
         },
 
-        resolveModelId: (modelKey) => modelsModule.resolveModelId(config.backend.type, modelKey),
-        getModels: () => modelsModule.getModelsForBackend(config.backend.type),
-        getImagePolicy: (modelKey) => modelsModule.getImagePolicy(config.backend.type, modelKey)
+        /**
+         * 解析模型 ID
+         * @param {string} modelKey - 模型 key
+         * @returns {string|null}
+         */
+        resolveModelId: (modelKey) => {
+            if (!poolManager) {
+                logger.warn('适配器', 'resolveModelId 调用时 Pool 未初始化');
+                return null;
+            }
+            return poolManager.resolveModelId(modelKey);
+        },
+
+        /**
+         * 获取模型列表
+         * @returns {object}
+         */
+        getModels: () => {
+            if (!poolManager) {
+                return { object: 'list', data: [] };
+            }
+            return poolManager.getModels();
+        },
+
+        /**
+         * 获取图片策略
+         * @param {string} modelKey - 模型 key
+         * @returns {string}
+         */
+        getImagePolicy: (modelKey) => {
+            if (!poolManager) {
+                return 'optional';
+            }
+            return poolManager.getImagePolicy(modelKey);
+        },
+
+        /**
+         * 获取 Cookies
+         * @param {string} [workerName] - Worker 名称
+         * @param {string} [domain] - 域名
+         * @returns {Promise<{worker: string, cookies: object[]}>}
+         */
+        getCookies: async (workerName, domain) => {
+            if (!poolManager) {
+                throw new Error('Pool 未初始化');
+            }
+            return await poolManager.getCookies(workerName, domain);
+        },
+
+        /**
+         * 触发监控导航（空闲时）
+         */
+        navigateToMonitor: async () => {
+            if (poolManager) {
+                await poolManager.navigateToMonitor();
+            }
+        },
+
+        /**
+         * 获取 PoolManager 实例
+         * @returns {PoolManager|null}
+         */
+        getPoolManager: () => poolManager
     };
-
-    const isMerge = config.backend.merge && config.backend.merge.enable;
-    const activeBackend = isMerge ? MergedBackend : SingleBackend;
-
-    logger.info('适配器', `后端模式: ${isMerge ? '聚合' : '独立'}`);
-
-    return { config, TEMP_DIR, ...activeBackend };
 }

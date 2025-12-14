@@ -3,7 +3,7 @@
  * @description 通过自动化方式驱动 nanobananafree.ai 网页端生成图片，并将结果转换为统一的后端返回结构。
  */
 
-import { initBrowserBase } from '../../browser/launcher.js';
+
 import {
     sleep,
     safeClick,
@@ -22,28 +22,6 @@ import { logger } from '../../utils/logger.js';
 // --- 配置常量 ---
 const TARGET_URL = 'https://nanobananafree.ai/';
 
-/**
- * 初始化浏览器
- * @param {object} config - 配置对象
- * @returns {Promise<{browser: object, page: object, client: object}>}
- */
-async function initBrowser(config) {
-    // NanoBananaFree AI 特定的输入框验证逻辑
-    const waitInputValidator = async (page) => {
-        const textareaSelector = 'textarea';
-        await page.waitForSelector(textareaSelector, { timeout: 60000 });
-        await safeClick(page, textareaSelector, { bias: 'input' });
-        await sleep(500, 1000);
-    };
-
-    const base = await initBrowserBase(config, {
-        userDataDir: config.paths.userDataDir,
-        targetUrl: TARGET_URL,
-        productName: 'NanoBananaFree AI',
-        waitInputValidator
-    });
-    return { ...base, config };
-}
 
 /**
  * 执行生图任务
@@ -152,4 +130,48 @@ async function generateImage(context, prompt, imgPaths, modelId, meta = {}) {
     }
 }
 
-export { initBrowser, generateImage };
+/**
+ * 输入框就绪校验
+ * @param {import('playwright-core').Page} page
+ */
+async function waitInputValidator(page) {
+    const textareaSelector = 'textarea';
+    await page.waitForSelector(textareaSelector, { timeout: 60000 });
+    await safeClick(page, textareaSelector, { bias: 'input' });
+    await sleep(500, 1000);
+}
+
+/**
+ * 适配器 manifest
+ */
+export const manifest = {
+    id: 'nanobananafree_ai',
+    displayName: 'NanoBananaFree AI',
+
+    // 入口 URL
+    getTargetUrl(config, workerConfig) {
+        return TARGET_URL;
+    },
+
+    // 模型列表
+    models: [
+        { id: 'gemini-2.5-flash-image', imagePolicy: 'optional' }
+    ],
+
+    // 模型 ID 解析（直通）
+    resolveModelId(modelKey) {
+        const model = this.models.find(m => m.id === modelKey);
+        return model ? model.id : null;
+    },
+
+    // 输入框就绪校验
+    waitInput: waitInputValidator,
+
+    // 无需导航处理器
+    navigationHandlers: [],
+
+    // 核心生图方法
+    generateImage
+};
+
+export { generateImage };

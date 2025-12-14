@@ -58,35 +58,38 @@ export function createRouter(context) {
      * 处理 GET /v1/cookies
      * @param {import('http').ServerResponse} res - HTTP 响应
      * @param {string} requestId - 请求 ID
+     * @param {string} [workerName] - 可选，指定 Worker 名称
      * @param {string} [domain] - 可选，指定获取某个域名的 Cookies
      */
-    async function handleCookies(res, requestId, domain) {
-        const browserContext = queueManager.getBrowserContext();
+    async function handleCookies(res, requestId, workerName, domain) {
+        const poolContext = queueManager.getPoolContext();
 
-        if (!browserContext?.page) {
+        if (!poolContext?.poolManager) {
             sendApiError(res, { code: ERROR_CODES.BROWSER_NOT_INITIALIZED });
             return;
         }
 
         try {
-            const context = browserContext.page.context();
-            let cookies;
-
-            if (domain) {
-                // 指定域名时，只获取该域名的 Cookies
-                cookies = await context.cookies(domain.startsWith('http') ? domain : `https://${domain}`);
-            } else {
-                // 默认获取所有 Cookies
-                cookies = await context.cookies();
-            }
-
-            sendJson(res, 200, { cookies });
+            const result = await queueManager.getWorkerCookies(workerName, domain);
+            sendJson(res, 200, {
+                worker: result.worker,
+                cookies: result.cookies
+            });
         } catch (err) {
             logger.error('服务器', '获取 Cookies 失败', { id: requestId, error: err.message });
-            sendApiError(res, {
-                code: ERROR_CODES.INTERNAL_ERROR,
-                error: err.message
-            });
+
+            // 区分错误类型
+            if (err.message.includes('Worker 不存在') || err.message.includes('Worker not found')) {
+                sendApiError(res, {
+                    code: ERROR_CODES.BAD_REQUEST,
+                    error: err.message
+                });
+            } else {
+                sendApiError(res, {
+                    code: ERROR_CODES.INTERNAL_ERROR,
+                    error: err.message
+                });
+            }
         }
     }
 
@@ -195,8 +198,9 @@ export function createRouter(context) {
         if (req.method === 'GET' && pathname === '/v1/models') {
             handleModels(res);
         } else if (req.method === 'GET' && pathname === '/v1/cookies') {
+            const workerName = parsedUrl.searchParams.get('name');
             const domain = parsedUrl.searchParams.get('domain');
-            await handleCookies(res, requestId, domain);
+            await handleCookies(res, requestId, workerName, domain);
         } else if (req.method === 'POST' && pathname.startsWith('/v1/chat/completions')) {
             await handleChatCompletions(req, res, requestId);
         } else {

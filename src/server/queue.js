@@ -1,6 +1,6 @@
 /**
  * @fileoverview 任务队列管理模块
- * @description 负责请求队列、并发控制和心跳机制
+ * @description 负责请求队列、并发控制和心跳机制，适配 Pool 模式架构
  */
 
 import { logger } from '../utils/logger.js';
@@ -13,6 +13,7 @@ import {
     buildChatCompletion,
     buildChatCompletionChunk
 } from './http/respond.js';
+import { ERROR_CODES } from './errors.js';
 
 /**
  * @typedef {object} TaskContext
@@ -34,9 +35,8 @@ import {
  */
 
 /**
- * @typedef {object} BrowserContext
- * @property {object} browser - Playwright 浏览器实例
- * @property {object} page - Playwright 页面实例
+ * @typedef {object} PoolContext
+ * @property {import('../backend/pool.js').PoolManager} poolManager - Pool 管理器
  * @property {object} config - 配置对象
  */
 
@@ -44,14 +44,19 @@ import {
  * 创建任务队列管理器
  * @param {QueueConfig} queueConfig - 队列配置
  * @param {object} callbacks - 回调函数
- * @param {Function} callbacks.initBrowser - 初始化浏览器函数
+ * @param {Function} callbacks.initBrowser - 初始化 Pool 函数
  * @param {Function} callbacks.generateImage - 生成图片函数
  * @param {object} callbacks.config - 配置对象
+ * @param {Function} [callbacks.navigateToMonitor] - 监控导航函数
+ * @param {Function} [callbacks.getCookies] - 获取 Cookies 函数
  * @returns {object} 队列管理器
  */
 export function createQueueManager(queueConfig, callbacks) {
-    const { maxConcurrent, maxQueueSize, keepaliveMode } = queueConfig;
-    const { initBrowser, generateImage, config, navigateToMonitor } = callbacks;
+    const { maxConcurrent, queueBuffer, keepaliveMode } = queueConfig;
+    const { initBrowser, generateImage, config, navigateToMonitor, getCookies } = callbacks;
+
+    // 计算有效队列大小：0 表示不限制，否则为 maxConcurrent + buffer
+    const effectiveQueueSize = queueBuffer === 0 ? Infinity : (maxConcurrent + queueBuffer);
 
     /** @type {TaskContext[]} */
     const queue = [];
@@ -59,8 +64,8 @@ export function createQueueManager(queueConfig, callbacks) {
     /** @type {number} */
     let processingCount = 0;
 
-    /** @type {BrowserContext|null} */
-    let browserContext = null;
+    /** @type {PoolContext|null} */
+    let poolContext = null;
 
     /**
      * 清理任务临时文件
@@ -97,13 +102,13 @@ export function createQueueManager(queueConfig, callbacks) {
         }
 
         try {
-            // 确保浏览器已初始化
-            if (!browserContext) {
-                browserContext = await initBrowser(config);
+            // 确保 Pool 已初始化
+            if (!poolContext) {
+                poolContext = await initBrowser(config);
             }
 
-            // 调用核心生图逻辑
-            const result = await generateImage(browserContext, prompt, imagePaths, modelId, { id });
+            // 调用核心生图逻辑 (通过 Pool 分发)
+            const result = await generateImage(poolContext, prompt, imagePaths, modelId, { id });
 
             // 清除心跳
             if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -198,36 +203,49 @@ export function createQueueManager(queueConfig, callbacks) {
      * @returns {boolean}
      */
     function canAcceptNonStreaming() {
-        return processingCount + queue.length < maxQueueSize;
+        return processingCount + queue.length < effectiveQueueSize;
     }
 
     /**
-     * 初始化浏览器
-     * @returns {Promise<BrowserContext>}
+     * 初始化 Pool
+     * @returns {Promise<PoolContext>}
      */
-    async function initializeBrowser() {
-        browserContext = await initBrowser(config);
+    async function initializePool() {
+        poolContext = await initBrowser(config);
         // 初始化完成后，触发首次监控跳转
         if (navigateToMonitor) {
             navigateToMonitor().catch(() => { });
         }
-        return browserContext;
+        return poolContext;
     }
 
     /**
-     * 获取浏览器上下文
-     * @returns {BrowserContext|null}
+     * 获取 Pool 上下文
+     * @returns {PoolContext|null}
      */
-    function getBrowserContext() {
-        return browserContext;
+    function getPoolContext() {
+        return poolContext;
+    }
+
+    /**
+     * 获取指定 Worker 的 Cookies (代理到后端)
+     * @param {string} [workerName] - Worker 名称
+     * @param {string} [domain] - 域名
+     * @returns {Promise<{worker: string, cookies: object[]}>}
+     */
+    async function getWorkerCookies(workerName, domain) {
+        if (!getCookies) {
+            throw new Error('getCookies 回调未注册');
+        }
+        return await getCookies(workerName, domain);
     }
 
     return {
         addTask,
         getStatus,
         canAcceptNonStreaming,
-        initializeBrowser,
-        getBrowserContext,
-        maxQueueSize
+        initializePool,
+        getPoolContext,
+        getWorkerCookies
     };
 }

@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { IMAGE_POLICY } from '../backend/models.js';
+import { IMAGE_POLICY } from '../backend/registry.js';
 import { ERROR_CODES, getErrorMessage } from './errors.js';
 
 /**
@@ -128,11 +128,13 @@ export async function parseRequest(data, options) {
     prompt = prompt.trim();
 
     // 解析模型参数
-    let modelId = null;
+    let modelKey = null;
     if (data.model) {
-        modelId = resolveModelId(data.model);
-        if (modelId) {
-            logger.info('服务器', `触发模型: ${data.model} (${modelId})`, { id: requestId });
+        // 只校验模型是否支持，不解析
+        const resolved = resolveModelId(data.model);
+        if (resolved) {
+            modelKey = data.model;  // 保留原始 modelKey，由 PoolManager 自行解析
+            logger.info('服务器', `触发模型: ${data.model}`, { id: requestId });
         } else {
             return parseError(ERROR_CODES.INVALID_MODEL, `模型无效/后端 ${backendName} 不支持: ${data.model}`);
         }
@@ -157,7 +159,7 @@ export async function parseRequest(data, options) {
         data: {
             prompt,
             imagePaths,
-            modelId,
+            modelId: modelKey,  // 返回原始 modelKey
             modelName: data.model || null,
             isStreaming
         }

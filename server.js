@@ -73,8 +73,8 @@ const KEEPALIVE_MODE = config.server?.keepalive?.mode || 'comment';
 /** @type {number} 最大并发数 */
 const MAX_CONCURRENT = config.queue?.maxConcurrent || 1;
 
-/** @type {number} 最大队列大小 */
-const MAX_QUEUE_SIZE = config.queue?.maxQueueSize || 2;
+/** @type {number} 队列缓冲区（0 表示不限制非流式） */
+const QUEUE_BUFFER = config.queue?.queueBuffer ?? 2;
 
 /** @type {number} 图片数量限制 */
 const IMAGE_LIMIT = config.queue?.imageLimit || 5;
@@ -87,7 +87,7 @@ const IMAGE_LIMIT = config.queue?.imageLimit || 5;
 const queueManager = createQueueManager(
     {
         maxConcurrent: MAX_CONCURRENT,
-        maxQueueSize: MAX_QUEUE_SIZE,
+        queueBuffer: QUEUE_BUFFER,
         keepaliveMode: KEEPALIVE_MODE
     },
     {
@@ -95,7 +95,10 @@ const queueManager = createQueueManager(
         generateImage,
         config,
         navigateToMonitor: backend.navigateToMonitor
-            ? () => backend.navigateToMonitor(config)
+            ? () => backend.navigateToMonitor()
+            : null,
+        getCookies: backend.getCookies
+            ? (workerName, domain) => backend.getCookies(workerName, domain)
             : null
     }
 );
@@ -117,25 +120,37 @@ const handleRequest = createRouter({
 // ==================== 启动服务器 ====================
 
 /**
+ * 检测是否为登录模式
+ */
+const isLoginMode = process.argv.some(arg => arg.startsWith('-login'));
+
+/**
  * 启动 HTTP 服务器
  * @returns {Promise<void>}
  */
 async function startServer() {
-    // 预先启动浏览器
+    // 预先启动 Pool
     try {
-        await queueManager.initializeBrowser();
+        await queueManager.initializePool();
     } catch (err) {
-        logger.error('服务器', '浏览器初始化失败', { error: err.message });
+        logger.error('服务器', 'Pool 初始化失败', { error: err.message });
         process.exit(1);
+    }
+
+    // 登录模式：不启动 HTTP 服务器，只等待用户登录
+    if (isLoginMode) {
+        logger.info('服务器', '登录模式已就绪，请在浏览器中完成登录操作');
+        logger.info('服务器', '完成后可直接关闭浏览器窗口或按 Ctrl+C 退出');
+        return;
     }
 
     // 创建并启动 HTTP 服务器
     const server = http.createServer(handleRequest);
 
     server.listen(PORT, () => {
-        logger.info('服务器', `HTTP 服务器启动成功，监听端口 ${PORT}`);
-        logger.info('服务器', `后端: ${backendName}，流式心跳模式: ${KEEPALIVE_MODE}`);
-        logger.info('服务器', `最大并发: ${MAX_CONCURRENT}，最大队列: ${MAX_QUEUE_SIZE}，最大图片数量: ${IMAGE_LIMIT}`);
+        logger.info('服务器', `HTTP 服务器已启动，端口: ${PORT}`);
+        logger.info('服务器', `流式心跳模式: ${KEEPALIVE_MODE}`);
+        logger.info('服务器', `最大并发: ${MAX_CONCURRENT}，队列缓冲: ${QUEUE_BUFFER}，最大图片数量: ${IMAGE_LIMIT}`);
     });
 }
 

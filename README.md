@@ -1,9 +1,9 @@
 # LMArenaImagenAutomator
-![Image](https://github.com/user-attachments/assets/0a887137-64c3-4919-8ab6-b5cf23e5f751)
+![Image](https://github.com/user-attachments/assets/296a518e-c42b-4e39-8ff6-9b4381ed4f6e)
 
 ## 📝 项目简介
 
-LMArenaImagenAutomator 是一个基于 Playwright + Camoufox 的自动化图像生成工具，通过模拟人类操作与 LMArena、Gemini 等网站交互提供图像生成服务到OpenAI格式的接口。
+LMArenaImagenAutomator 是一个基于 Playwright + Camoufox 的自动化图像生成工具，支持多窗口并发与多账号管理（实现浏览器实例数据完全隔离），通过模拟人类操作与 LMArena、Gemini 等网站交互，提供兼容 OpenAI 格式的图像生成接口服务。
 
 当前支持的网站：
   - [LMArena](https://lmarena.ai/)
@@ -16,6 +16,7 @@ LMArenaImagenAutomator 是一个基于 Playwright + Camoufox 的自动化图像�
 ### ✨ 主要特性
 
 - 🤖 **拟人操作**：模拟人类打字行为和鼠标移动行为
+- 👀 **任务并行**：支持多窗口执行和多账号数据隔离
 - 🖼️ **多图支持**：最多支持同时上传 10 张参考图片
 - 📊 **队列管理**：支持任务队列，防止请求过载或超时
 - 🌐 **代理支持**：支持 HTTP 和 SOCKS5 代理配置
@@ -78,12 +79,49 @@ docker-compose up -d
 ### ⚠️ 首次使用必读
 
 1. **启动登录模式**：
-   - 请使用 `npm start -- -login` 进入登录模式（关闭无头模式）。
-   - Linux用户使用 `npm start -- -xvfb -vnc` 进入登录模式且创建虚拟显示器到VNC。
+   ```bash
+   npm start -- -login              # 启动第一个 Worker 进行登录
+   npm start -- -login=workerName   # 启动指定 Worker 进行登录
+   ```
+   - Linux 用户使用 `npm start -- -xvfb -vnc` 进入登录模式且创建虚拟显示器到 VNC。
 2. **完成初始化**：
    - 手动登录账号。
    - 在输入框发送任意消息，触发并完成 CloudFlare/reCAPTCHA 验证及服务条款同意。
 3. **运行建议**：初始化完成后可切换回标准模式，但为降低风控，**强烈建议长期保持非无头模式运行**。
+
+### 📑 配置文件结构
+
+项目使用 `config.yaml` 进行配置，核心结构如下：
+
+```yaml
+backend:
+  pool:
+    strategy: least_busy    # 调度策略
+    instances:              # 浏览器实例列表
+      - name: "browser_01"  # 实例 ID
+        userDataMark: "01"  # 数据目录标识
+        proxy:              # 实例级代理
+          enable: true
+          type: socks5
+          host: 127.0.0.1
+          port: 1080
+        workers:            # 该实例下的 Worker
+          - name: "lmarena_01"
+            type: lmarena
+          - name: "zai_01"
+            type: zai_is
+          - name: "merge"
+            type: merge     # 单标签聚合模式
+            mergeTypes: [zai_is, lmarena]
+            mergeMonitor: zai_is  # 空闲时挂机监控的后端 (可选，留空则不启用)
+```
+
+**说明**：
+- 每个 `instance` 代表一个独立的浏览器进程
+- 同一 `instance` 下的 `workers` 共享浏览器数据和登录状态
+- 使用 Google OAuth 等统一登录时，只需登录一次即可用于所有 Worker
+
+详细配置请参考 `config.example.yaml` 和 `config.md`。
 
 
 ### 接口使用说明
@@ -211,13 +249,19 @@ curl -X GET http://127.0.0.1:3000/v1/models \
       "id": "seedream-4-high-res-fal",
       "object": "model",
       "created": 1732456789,
+      "owned_by": "internal_server"
+    },
+    {
+      "id": "lmarena/seedream-4-high-res-fal",
+      "object": "model",
+      "created": 1732456789,
       "owned_by": "lmarena"
     },
     {
       "id": "gemini-3-pro-image-preview",
       "object": "model",
       "created": 1732456789,
-      "owned_by": "lmarena"
+      "owned_by": "internal_server"
     }
   ]
 }
@@ -225,14 +269,14 @@ curl -X GET http://127.0.0.1:3000/v1/models \
 
 </details>
 
-#### 3. 获取Cookies
+#### 3. 获取 Cookies
 
-**功能说明**：可利用本项目的自动续登功能获取最新Cookie给其他工具使用。
+**功能说明**：可利用本项目的自动续登功能获取最新 Cookie 给其他工具使用。
 
 **请求端点**
-支持使用`domain`参数获取指定域名的Cookie
+支持使用 `name` 参数指定浏览器实例名称，`domain` 参数指定域名。
 ```
-GET http://127.0.0.1:3000/v1/cookies (?domain=lmarena.ai)
+GET http://127.0.0.1:3000/v1/cookies (?name=browser_default&domain=lmarena.ai)
 ```
 
 <details>
@@ -247,6 +291,7 @@ curl -X GET http://127.0.0.1:3000/v1/cookies \
 **响应格式**
 ```json
 {
+  "instance": "browser_default",
   "cookies": [
     {
       "name": "_GRECAPTCHA",

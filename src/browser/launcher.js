@@ -1,6 +1,7 @@
 /**
  * @fileoverview 浏览器启动与生命周期管理
- * @description 负责启动 Camoufox（Playwright 内核）、注入指纹与代理、创建/复用页面，并在进程退出时做资源清理。
+ * @description 负责启动 Camoufox（Playwright 内核）、注入指纹与代理，并在进程退出时做资源清理。
+ *              导航和预热行为由工作池负责，本模块只负责启动浏览器。
  *
  * 约定：
  * - 登录模式会尽量保留 Profile（用户数据目录）
@@ -132,7 +133,6 @@ function getPersistentFingerprint(filePath) {
 
             // 简单校验：确保读取的是一个对象
             if (savedData && typeof savedData === 'object') {
-                logger.info('浏览器', '已加载本地持久化指纹');
                 return savedData;
             }
         } catch (e) {
@@ -171,57 +171,53 @@ function getPersistentFingerprint(filePath) {
 }
 
 /**
- * 初始化浏览器 (统一启动逻辑)
- * @param {object} config - 配置对象
- * @param {object} [config.browser] - Browser 配置
- * @param {boolean} [config.browser.headless] - 是否开启 Headless 模式
- * @param {string} [config.browser.path] - Camoufox 可执行文件路径
- * @param {object} [config.browser.proxy] - 代理配置
+ * 启动浏览器实例 (仅负责启动，不负责导航和预热)
+ * 
+ * 导航到目标页面、注册导航处理器、预热行为由工作池 (pool.js) 负责。
+ * 
+ * @param {object} config - 全局配置对象
  * @param {object} options - 启动选项
  * @param {string} options.userDataDir - 用户数据目录路径
- * @param {string} options.targetUrl - 目标 URL
- * @param {string} options.productName - 产品名称(用于日志)
- * @param {boolean} [options.reuseExistingTab=false] - 是否复用已有特定域名的 tab
- * @param {Function} [options.waitInputValidator] - 自定义输入框等待验证函数
- * @param {Function} [options.navigationHandler] - 全局导航处理器，用于自动处理登录等跳转
- * @returns {Promise<{browser: object, page: object, client: object}>}
+ * @param {string} [options.userDataMark] - 用户数据目录标识 (用于日志显示)
+ * @param {object} [options.proxyConfig] - Worker 级代理配置
+ * @returns {Promise<{context: object, page: object}>} 浏览器上下文和初始页面
  */
-export async function initBrowserBase(config, options) {
+export async function initBrowserBase(config, options = {}) {
     const {
         userDataDir,
-        targetUrl,
-        productName,
-        waitInputValidator = null,
-        navigationHandler = null
+        instanceName = null,
+        proxyConfig = null
     } = options;
 
-    // 检测登录模式和 Xvfb 模式
-    const isLoginMode = process.argv.includes('-login');
-    const isXvfbMode = process.env.XVFB_RUNNING === 'true';
-    const ENABLE_AUTOMATION_MODE = !isLoginMode;
+    // 日志标识 (优先使用实例名称)
+    const markLabel = instanceName || '默认';
 
-    logger.info('浏览器', `开始初始化浏览器 (${productName})`);
-    logger.info('浏览器', `自动化模式: ${ENABLE_AUTOMATION_MODE ? '开启' : '关闭'}`);
-    if (isLoginMode) {
-        logger.warn('浏览器', '当前为登录模式，请手动完成登录后关闭登录模式以继续自动化程序！');
+    // 检测登录模式和 Xvfb 模式
+    const isLoginMode = process.argv.some(arg => arg.startsWith('-login'));
+    const isXvfbMode = process.env.XVFB_RUNNING === 'true';
+    const headlessMode = config?.browser?.headless && !isLoginMode && !isXvfbMode;
+
+    // 如果配置了无头模式但被强制禁用，输出原因
+    if (config?.browser?.headless && !headlessMode) {
+        const reasons = [];
+        if (isLoginMode) reasons.push('登录模式');
+        if (isXvfbMode) reasons.push('Xvfb 模式');
+        logger.info('浏览器', `[${markLabel}] 无头模式已被禁用 (${reasons.join(' + ')})`);
     }
-    if (isXvfbMode) {
-        logger.info('浏览器', '检测到 Xvfb 环境，强制禁用无头模式');
-    }
+
+    logger.info('浏览器', `[${markLabel}] 启动浏览器实例...`);
 
     const browserConfig = config?.browser || {};
 
-    // 获取指纹对象
-    const fingerprintPath = path.join(process.cwd(), 'data', 'camoufoxFingerprints.json');
+    // 获取指纹对象（指纹文件放在对应的 userDataDir 内）
+    const fingerprintPath = path.join(userDataDir, 'fingerprint.json');
     const myFingerprint = getPersistentFingerprint(fingerprintPath);
 
     // 构造 Camoufox 启动选项
-    logger.info('浏览器', '正在启动 Camoufox 浏览器...');
     const currentOS = getCurrentOS();
     const camoufoxLaunchOptions = {
-        // 基础选项 (snake_case)
         executable_path: browserConfig.path || undefined,
-        headless: browserConfig.headless && !isLoginMode && !isXvfbMode,
+        headless: headlessMode,
         user_data_dir: userDataDir,
         window: [1366, 768],
         ff_version: 135,
@@ -233,146 +229,50 @@ export async function initBrowserBase(config, options) {
         geoip: true
     };
 
-    // Headless 模式配置
-    if (browserConfig.headless && !isLoginMode && !isXvfbMode) {
-        logger.info('浏览器', 'Headless 模式: 启用');
-    } else {
-        const reasons = [];
-        if (isLoginMode) reasons.push('登录模式');
-        if (isXvfbMode) reasons.push('Xvfb 模式');
-        if (!browserConfig.headless) reasons.push('配置禁用');
-
-        logger.info('浏览器', 'Headless 模式: 禁用' + (reasons.length > 0 ? ` (${reasons.join(', ')})` : ''));
-    }
-
-
-    // 代理配置适配
-    const proxyObject = await getBrowserProxy(browserConfig.proxy);
-    if (proxyObject) {
-        camoufoxLaunchOptions.proxy = proxyObject;
+    // 代理配置
+    const proxyObj = await getBrowserProxy(proxyConfig);
+    if (proxyObj) {
+        camoufoxLaunchOptions.proxy = proxyObj;
     }
 
     // 启动 Camoufox
     const context = await Camoufox(camoufoxLaunchOptions);
-    globalContext = context; // 存储全局 Context
+    globalContext = context;
 
-    logger.info('浏览器', 'Camoufox 浏览器已启动');
+    // 构建状态描述
+    const statusParts = [];
+    statusParts.push(`无头模式: ${headlessMode ? '是' : '否'}`);
+    if (proxyObj) statusParts.push('代理: 已配置');
+    logger.info('浏览器', `[${markLabel}] 浏览器已启动 (${statusParts.join(', ')})`);
 
     // 注册清理处理器
     registerCleanupHandlers();
 
     // 注册断开连接事件
     context.on('close', async () => {
-        logger.warn('浏览器', 'Camoufox 浏览器已断开连接');
+        logger.warn('浏览器', `[${markLabel}] 浏览器已断开连接`);
         await cleanup();
         process.exit(0);
     });
 
     // 获取或创建 Page
     let page;
-    const existingPages = context.pages(); // 获取启动时自动打开的页面
-    if (!page) {
-        if (existingPages.length > 0) {
-            page = existingPages[0];
-            logger.debug('浏览器', '复用浏览器启动时的默认标签页');
-        } else {
-            page = await context.newPage();
-            logger.debug('浏览器', '浏览器没有标签，已创建新标签页');
-        }
-    }
-
-    // 强制刷新一下视口大小，防止复用默认窗口时尺寸不对
-    if (camoufoxLaunchOptions.viewport) {
-        await page.setViewportSize(camoufoxLaunchOptions.viewport);
-    }
-
-    // 注册全局导航处理器（用于自动处理登录等跳转）
-    if (navigationHandler) {
-        page.on('framenavigated', async () => {
-            try {
-                await navigationHandler(page);
-            } catch (e) {
-                logger.warn('浏览器', `全局导航处理器出错: ${e.message}`);
-            }
-        });
-        logger.debug('浏览器', '已注册全局导航处理器');
-    }
-
-    // 登录模式挂起逻辑
-    if (isLoginMode) {
-        // 尝试导航到目标页面方便用户登录
-        try {
-            logger.info('浏览器', `正在连接 ${productName}...`);
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-        } catch (e) {
-            logger.warn('浏览器', `打开页面失败: ${e.message}`);
-        }
-
-        logger.info('浏览器', '请在弹出的浏览器窗口中手动完成登录操作');
-        logger.info('浏览器', '完成后可直接关闭浏览器窗口或在终端结束程序');
-
-        await new Promise((resolve) => {
-            context.on('close', () => {
-                logger.info('浏览器', '检测到浏览器窗口关闭，程序即将退出');
-                resolve();
-            });
-        });
-
-        await cleanup();
-        process.exit(0);
-    }
-
-    // 初始化 ghost-cursor
-    page.cursor = createCursor(page);
-
-
-    // --- 行为预热建立人机检测信任 ---
-    const urlDomain = new URL(targetUrl).hostname;
-    if (!page.url().includes(urlDomain)) {
-        logger.info('浏览器', `正在连接 ${productName}...`);
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+    const existingPages = context.pages();
+    if (existingPages.length > 0) {
+        page = existingPages[0];
     } else {
-        logger.info('浏览器', `页面已在 ${productName}，跳过跳转`);
+        page = await context.newPage();
     }
 
-    logger.info('浏览器', '正在随机浏览页面以建立信任...');
+    // 强制刷新视口大小
+    await page.setViewportSize({ width: 1366, height: 768 });
 
-    // 计算屏幕中心点 (动态获取视口大小)
-    const vp = await getRealViewport(page);
-
-    // 计算动态中心点
-    const centerX = vp.width / 2;
-    const centerY = vp.height / 2;
-
-    // 第一次移动:从左上角移动到中心附近
-    if (page.cursor) {
-        // 使用 clamp 确保随机偏移后仍在屏幕内
-        const targetX = clamp(centerX + random(-200, 200), 10, vp.safeWidth);
-        const targetY = clamp(centerY + random(-200, 200), 10, vp.safeHeight);
-
-        // 移动鼠标 (增加拟人化)
-        await page.cursor.moveTo({ x: targetX, y: targetY });
-    }
-    await sleep(500, 1000);
-
-    // 模拟滚动行为
-    try {
-        await page.mouse.wheel({ deltaY: random(100, 300) });
-        await sleep(800, 1500);
-        await page.mouse.wheel({ deltaY: -random(50, 100) });
-    } catch (e) { }
-
-    // 如果提供了自定义输入框验证函数,使用它
-    if (waitInputValidator && typeof waitInputValidator === 'function') {
-        await waitInputValidator(page);
-    }
-
-    logger.info('浏览器', '浏览器初始化完成，系统就绪');
-    logger.warn('浏览器', '当任务运行时请勿随意调节窗口大小，以免鼠标轨迹错位!');
-
-    // 返回对象 (兼容性处理)
+    // 返回 context 和 page（导航、预热、cursor 初始化由工作池负责）
     return {
-        browser: context,
+        context,
         page
     };
 }
+
+// 导出工具函数供 pool.js 使用
+export { createCursor, getRealViewport, clamp, random, sleep };
