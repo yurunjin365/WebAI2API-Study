@@ -39,7 +39,7 @@ async function handleAccountChooser(page) {
         const currentUrl = page.url();
         if (currentUrl.includes('auth.business.gemini.google/account-chooser')) {
             lockPageAuth(page);
-            logger.info('适配器', '[登录器] 检测到账户选择页面，尝试自动确认...');
+            logger.info('适配器', '[登录器(gemini_biz)] 检测到账户选择页面，尝试自动确认...');
 
             // 尝试查找提交按钮 (通常是标准的 button[type="submit"])
             const submitBtn = await page.$('button[type="submit"]');
@@ -49,11 +49,11 @@ async function handleAccountChooser(page) {
                 await sleep(300, 500);
 
                 // 使用 safeClick 模拟人类点击行为
-                logger.info('适配器', '[登录器] 正在点击确认按钮...');
+                logger.info('适配器', '[登录器(gemini_biz)] 正在点击确认按钮...');
                 await safeClick(page, submitBtn, { bias: 'button' });
 
                 // 点击后等待跳转回目标页面
-                logger.info('适配器', '[登录器] 等待跳转回目标页面...');
+                logger.info('适配器', '[登录器(gemini_biz)] 等待跳转回目标页面...');
                 try {
                     await page.waitForFunction(() => {
                         const href = window.location.href;
@@ -62,10 +62,10 @@ async function handleAccountChooser(page) {
                             href.includes('business.gemini.google');
                     }, { timeout: 60000, polling: 1000 });
 
-                    logger.info('适配器', `[登录器] 已跳转回目标页面`);
+                    logger.info('适配器', `[登录器(gemini_biz)] 已跳转回目标页面`);
                 } catch (timeoutErr) {
                     const finalUrl = page.url();
-                    logger.warn('适配器', `[登录器] 等待跳转回目标页面超时，尝试继续... 当前URL: ${finalUrl}`);
+                    logger.warn('适配器', `[登录器(gemini_biz)] 等待跳转回目标页面超时，尝试继续... 当前URL: ${finalUrl}`);
                 }
 
                 // 额外缓冲时间，确保页面完全加载
@@ -74,14 +74,14 @@ async function handleAccountChooser(page) {
                 return true;
             } else {
                 // 按钮还没加载出来，保持锁，等待下次检查
-                logger.debug('适配器', '[登录器] 按钮尚未加载，等待中...');
+                logger.debug('适配器', '[登录器(gemini_biz)] 按钮尚未加载，等待中...');
                 await sleep(500, 1000);
                 unlockPageAuth(page); // 释放锁让下次尝试
                 return true; // 返回 true 表示"仍在处理中"
             }
         }
     } catch (err) {
-        logger.warn('适配器', `[登录器] 处理账户选择页面失败: ${err.message}`);
+        logger.warn('适配器', `[登录器(gemini_biz)] 处理账户选择页面失败: ${err.message}`);
         unlockPageAuth(page);
     }
     return false;

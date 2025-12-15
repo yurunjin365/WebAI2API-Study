@@ -43,18 +43,18 @@ async function handleDiscordAuth(page) {
     // 1. 检查是否在 zai.is/auth 页面
     if (currentUrl.includes('zai.is/auth')) {
         lockPageAuth(page);
-        logger.info('适配器', '[登录器] 检测到登录页面，正在处理 Discord 登录...');
+        logger.info('适配器', '[登录器(zai_is)] 检测到登录页面，正在处理 Discord 登录...');
 
         try {
             // 等待页面加载完成，点击唯一的 button 标签
             await page.waitForSelector('button', { timeout: 30000 });
             await sleep(1000, 1500);
             await safeClick(page, 'button', { bias: 'button' });
-            logger.info('适配器', '[登录器] 已点击登录按钮，等待跳转到 Discord...');
+            logger.info('适配器', '[登录器(zai_is)] 已点击登录按钮，等待跳转到 Discord...');
 
             // 2. 等待跳转到 Discord OAuth2 授权页面
             await page.waitForURL(url => url.href.includes('discord.com/oauth2/authorize'), { timeout: 60000 });
-            logger.info('适配器', '[登录器] 已到达 Discord 授权页面');
+            logger.info('适配器', '[登录器(zai_is)] 已到达 Discord 授权页面');
             await sleep(2000, 3000);
 
             // 3. 使用鼠标滚轮滚动 main 元素，直到授权按钮可用
@@ -66,7 +66,7 @@ async function handleDiscordAuth(page) {
                 if (authorizeBtn) {
                     const isDisabled = await authorizeBtn.evaluate(el => el.disabled).catch(() => true);
                     if (!isDisabled) {
-                        logger.info('适配器', '[登录器] 授权按钮已可用，正在点击...');
+                        logger.info('适配器', '[登录器(zai_is)] 授权按钮已可用，正在点击...');
                         await sleep(500, 1000);
                         await safeClick(page, authorizeBtn, { bias: 'button' });
                         break;
@@ -86,7 +86,7 @@ async function handleDiscordAuth(page) {
             }
 
             // 4. 等待跳转回 zai.is (不包含 auth 和 discord)
-            logger.info('适配器', '[登录器] 等待跳转回目标页面...');
+            logger.info('适配器', '[登录器(zai_is)] 等待跳转回目标页面...');
             await page.waitForURL(url => {
                 const href = url.href;
                 return href.includes('zai.is') &&
@@ -94,12 +94,12 @@ async function handleDiscordAuth(page) {
                     !href.includes('discord.com');
             }, { timeout: 60000 });
 
-            logger.info('适配器', '[登录器] Discord 登录完成');
+            logger.info('适配器', '[登录器(zai_is)] Discord 登录完成');
             await sleep(2000, 3000);
             unlockPageAuth(page);
             return true;
         } catch (err) {
-            logger.warn('适配器', `[登录器] Discord 登录处理失败: ${err.message}`);
+            logger.warn('适配器', `[登录器(zai_is)] Discord 登录处理失败: ${err.message}`);
             unlockPageAuth(page);
         }
     }
