@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 初始化脚本不再依赖配置文件，支持交互式和参数传入式配置代理
   - 优化 WebUI 文案和日志排列
 
+### ❌ Removed
+- **删除测试脚本**
+  - 现在有 WebUI 测试了，已经无需 test 脚本了
+
 ## [3.3.1] - 2025-12-21
 
 ### ✨ Added
