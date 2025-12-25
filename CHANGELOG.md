@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.2] - 2025-12-25
+
+### 🔄 Changed
+- **浏览器指纹**
+  - 增加 WebGL 和 Canvas 噪点的持久化，防止频繁变化
+  - 清洗插件列表，防止出现 FireFox 中有 Chrome 内置的 PDF 阅读器插件
+  - 清洗 UA 标识，防止出现未来浏览器版本，导致某些网站报错403 (如：aistudio)
+- **关闭动画**
+  - 通过 about:config 中的设置禁用背景高斯模糊 CSS 和减少动画，节省资源占用
+
 ## [3.4.1] - 2025-12-24
 
 ### ✨ Added

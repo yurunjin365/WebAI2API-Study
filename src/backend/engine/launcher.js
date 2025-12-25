@@ -9,6 +9,7 @@
  */
 
 import { Camoufox } from 'camoufox-js';
+import { sampleWebGL } from 'camoufox-js/dist/webgl/sample.js';
 import { FingerprintGenerator } from 'fingerprint-generator';
 import fs from 'fs';
 import path from 'path';
@@ -115,59 +116,126 @@ function getCurrentOS() {
 }
 
 /**
- * 获取或生成持久化指纹
+ * 获取 WebGL 平台标识
+ * 将操作系统名称转换为 sampleWebGL 支持的格式
+ */
+function getWebGLPlatform(osName) {
+    if (osName === 'windows') return 'win';
+    if (osName === 'macos') return 'mac';
+    return 'lin';
+}
+
+/**
+ * 获取或生成持久化指纹 (含 WebGL 配置校验)
  * @param {string} filePath - JSON文件保存路径
  */
-function getPersistentFingerprint(filePath) {
+async function getPersistentFingerprint(filePath) {
     // 确保 data 目录存在
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
 
-    // 尝试读取现有指纹
+    let fingerprintData = null;
+    let webglPair = null;
+    let shouldSave = false;
+    const currentOS = getCurrentOS();
+    const targetWebGLOS = getWebGLPlatform(currentOS);
+
+    // 1. 尝试读取现有指纹
     if (fs.existsSync(filePath)) {
         try {
             const fileContent = fs.readFileSync(filePath, 'utf8');
-            const savedData = JSON.parse(fileContent);
-
-            // 简单校验：确保读取的是一个对象
-            if (savedData && typeof savedData === 'object') {
-                return savedData;
-            }
+            fingerprintData = JSON.parse(fileContent);
         } catch (e) {
-            logger.warn('浏览器', `读取指纹文件失败，将重新生成: ${e.message}`);
+            logger.warn('浏览器', `指纹文件损坏: ${e.message}`);
         }
     }
 
-    // 生成新指纹
-    const currentOS = getCurrentOS();
-    logger.info('浏览器', `正在为系统 [${currentOS}] 生成新指纹...`);
+    // 2. 校验 WebGL 配置的有效性 (从 videoCard 读取)
+    if (fingerprintData?.videoCard?.['webGl:vendor'] && fingerprintData?.videoCard?.['webGl:renderer']) {
+        const savedVendor = fingerprintData.videoCard['webGl:vendor'];
+        const savedRenderer = fingerprintData.videoCard['webGl:renderer'];
+        try {
+            // 拿着保存的配置，去数据库里"试探"一下是否存在
+            await sampleWebGL(targetWebGLOS, savedVendor, savedRenderer);
 
-    // 为不同系统使用不同的配置策略
-    const generatorOptions = {
-        browsers: ['firefox'],
-        operatingSystems: [currentOS],
-        devices: ['desktop'],
-        locales: ['en-US'],
-        screen: {
-            minWidth: 1280, maxWidth: 1366,
-            minHeight: 720, maxHeight: 768
+            // 如果没报错，说明配置有效，保留使用
+            webglPair = [savedVendor, savedRenderer];
+            logger.debug('浏览器', `加载 WebGL 配置成功: ${savedRenderer}`);
+        } catch (e) {
+            // 数据库里没找到 -> 配置失效
+            logger.warn('浏览器', `保存的 WebGL 配置与当前系统(${targetWebGLOS})不匹配，将重新生成`);
+            webglPair = null;
+            shouldSave = true;
         }
-    };
+    }
 
-    const generator = new FingerprintGenerator(generatorOptions);
+    // 3. 如果指纹完全不存在，生成新的基础指纹
+    if (!fingerprintData) {
+        logger.info('浏览器', `正在为系统 [${currentOS}] 生成新指纹...`);
+        const generatorOptions = {
+            browsers: ['firefox'],
+            operatingSystems: [currentOS],
+            devices: ['desktop'],
+            locales: ['en-US'],
+            screen: { minWidth: 1280, maxWidth: 1366, minHeight: 720, maxHeight: 768 }
+        };
+        const generator = new FingerprintGenerator(generatorOptions);
+        fingerprintData = generator.getFingerprint().fingerprint;
 
-    const result = generator.getFingerprint();
+        // 清洗 UA 版本
+        if (fingerprintData.navigator) {
+            let ua = fingerprintData.navigator.userAgent;
+            const TARGET_VERSION = "135.0";
+            ua = ua.replace(/rv:[\d\.]+/g, `rv:${TARGET_VERSION}`);
+            ua = ua.replace(/Firefox\/[\d\.]+/g, `Firefox/${TARGET_VERSION}`);
+            fingerprintData.navigator.userAgent = ua;
+        }
 
-    // 关键点：我们只需要 result.fingerprint 部分
-    const fingerprintToSave = result.fingerprint;
+        // 清洗插件数据
+        if (fingerprintData.pluginsData) {
+            fingerprintData.pluginsData.plugins = [];
+            fingerprintData.pluginsData.mimeTypes = [];
+        }
 
-    // 保存到文件
-    fs.writeFileSync(filePath, JSON.stringify(fingerprintToSave, null, 2));
-    logger.info('浏览器', `新指纹已保存至: ${filePath}`);
+        shouldSave = true;
+    }
 
-    return fingerprintToSave;
+    // 4. 如果 WebGL 配置为空，重新生成
+    if (!webglPair) {
+        try {
+            logger.info('浏览器', `正在生成新的 WebGL 配置 (${targetWebGLOS})...`);
+            const webglData = await sampleWebGL(targetWebGLOS);
+            webglPair = [webglData['webGl:vendor'], webglData['webGl:renderer']];
+
+            // 覆盖 videoCard
+            fingerprintData.videoCard = {
+                'webGl:vendor': webglPair[0],
+                'webGl:renderer': webglPair[1]
+            };
+
+            shouldSave = true;
+        } catch (e) {
+            logger.error('浏览器', `致命错误：无法生成 WebGL 配置: ${e.message}`);
+        }
+    }
+
+    // 5. 如果 Canvas 噪点不存在，生成新的
+    if (fingerprintData.canvasOffset === undefined) {
+        const offset = Math.floor(Math.random() * 41) - 20;
+        fingerprintData.canvasOffset = offset;
+        logger.info('浏览器', `已生成 Canvas 噪点偏移: ${offset}`);
+        shouldSave = true;
+    }
+
+    // 5. 如果有变动，保存回文件
+    if (shouldSave) {
+        fs.writeFileSync(filePath, JSON.stringify(fingerprintData, null, 2));
+        logger.info('浏览器', `指纹已更新并保存至: ${filePath}`);
+    }
+
+    return fingerprintData;
 }
 
 /**
@@ -211,7 +279,7 @@ export async function initBrowserBase(config, options = {}) {
 
     // 获取指纹对象（指纹文件放在对应的 userDataDir 内）
     const fingerprintPath = path.join(userDataDir, 'fingerprint.json');
-    const myFingerprint = getPersistentFingerprint(fingerprintPath);
+    const myFingerprint = await getPersistentFingerprint(fingerprintPath);
 
     // 构造 Camoufox 启动选项
     const currentOS = getCurrentOS();
@@ -219,16 +287,26 @@ export async function initBrowserBase(config, options = {}) {
         executable_path: browserConfig.path || undefined,
         headless: headlessMode,
         user_data_dir: userDataDir,
-        window: [1366, 768],
         ff_version: 135,
         fingerprint: myFingerprint,
         os: currentOS,
         i_know_what_im_doing: true,
+        webgl_config: myFingerprint.videoCard ? [myFingerprint.videoCard['webGl:vendor'], myFingerprint.videoCard['webGl:renderer']] : undefined,
         block_webrtc: true,
         exclude_addons: ['UBO'],
         geoip: true,
         config: {
-            forceScopeAccess: true
+            forceScopeAccess: true,
+            // Canvas 抗指纹：注入固定噪点偏移
+            'canvas:aaOffset': myFingerprint.canvasOffset ?? 0,
+            'canvas:aaCapOffset': true
+        },
+        // 关闭动画减轻资源压力
+        firefox_user_prefs: {
+            // 禁用背景模糊滤镜 (高 CPU 消耗)
+            'layout.css.backdrop-filter.enabled': false,
+            // 告诉网页用户倾向于减少动画 (触发网页自身的优化)
+            'ui.prefersReducedMotion': 1
         }
     };
 
@@ -267,8 +345,10 @@ export async function initBrowserBase(config, options = {}) {
         page = await context.newPage();
     }
 
-    // 强制刷新视口大小
-    await page.setViewportSize({ width: 1366, height: 768 });
+    // 强制刷新视口大小 (使用指纹中的屏幕尺寸)
+    const screenWidth = myFingerprint.screen?.availWidth || 1366;
+    const screenHeight = myFingerprint.screen?.availHeight || 768;
+    await page.setViewportSize({ width: screenWidth, height: screenHeight });
 
     // 返回 context 和 page（导航、预热、cursor 初始化由工作池负责）
     return {
