@@ -89,6 +89,12 @@ const handleSave = async () => {
         <!-- 配置抽屉 -->
         <a-drawer v-if="currentAdapter" v-model:open="drawerVisible" :title="`配置适配器 - ${currentAdapter.id}`" width="500"
             placement="right">
+            <!-- 适配器描述 -->
+            <div v-if="currentAdapter.description"
+                style="margin-bottom: 16px; padding: 12px; background: #f5f5f5; border-radius: 6px; color: #666; font-size: 13px; line-height: 1.6;">
+                {{ currentAdapter.description }}
+            </div>
+
             <div v-if="!currentAdapter.configSchema || currentAdapter.configSchema.length === 0">
                 <a-empty description="该适配器没有可配置项" />
             </div>

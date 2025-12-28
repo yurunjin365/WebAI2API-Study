@@ -358,6 +358,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'zai_is_text',
     displayName: 'zAI (文本生成)',
+    description: '使用 zAI 平台生成文本，支持多种大语言模型。需要 Discord 账户登录授权。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

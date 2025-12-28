@@ -197,6 +197,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'turnstile_test',
     displayName: 'Cloudflare Turnstile Test (CF人机验证码测试)',
+    description: '测试适配器，用于验证浏览器能否自动通过 Cloudflare Turnstile 人机验证。仅供调试使用。',
 
     getTargetUrl(config, workerConfig) {
         return TARGET_URL;

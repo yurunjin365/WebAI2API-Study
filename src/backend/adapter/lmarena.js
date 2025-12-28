@@ -180,6 +180,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'lmarena',
     displayName: 'LMArena (图片生成)',
+    description: '使用 LMArena 平台生成图片，支持多种图片生成模型。需要已登录的 LMArena 账户，若不登录会频繁弹出人机验证码且有速率限制。',
 
     // 配置项模式
     configSchema: [

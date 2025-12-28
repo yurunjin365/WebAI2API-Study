@@ -285,6 +285,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'gemini_biz',
     displayName: 'Gemini Business (图片、视频生成)',
+    description: '使用 Gemini Business 企业版生成图片和视频。需要提供入口 URL 并已登录企业账户 (每个谷歌账户首次可以在官网点击免费试用获取30天使用资格)。',
 
     // 配置表单定义
     configSchema: [

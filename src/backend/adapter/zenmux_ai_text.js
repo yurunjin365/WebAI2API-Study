@@ -243,6 +243,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'zenmux_ai',
     displayName: 'Zenmux AI (文本生成)',
+    description: '使用 Zenmux AI 平台生成文本，支持多种大语言模型。需要已登录的 ZenMux 账户。',
 
     // 无需额外配置
     configSchema: [],

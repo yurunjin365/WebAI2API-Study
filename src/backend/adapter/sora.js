@@ -230,6 +230,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'sora',
     displayName: 'Sora (视频生成)',
+    description: '使用 OpenAI Sora 生成视频，仅支持上传单张参考图片。需要已登录的 ChatGPT 账户。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

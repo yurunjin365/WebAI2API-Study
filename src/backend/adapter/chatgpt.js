@@ -188,6 +188,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'chatgpt',
     displayName: 'ChatGPT (图片生成)',
+    description: '使用 ChatGPT 官网生成图片，支持参考图片上传。需要已登录的 ChatGPT 账户，请使用会员账号 (包含 K12 教师认证)，非会员账号会有速率限制。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

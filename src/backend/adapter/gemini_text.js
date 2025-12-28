@@ -216,6 +216,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'gemini_text',
     displayName: 'Google Gemini (文本生成)',
+    description: '使用 Google Gemini 官网生成文本，支持多模型切换和图片上传。需要已登录的 Google 账户。',
 
     getTargetUrl(config, workerConfig) {
         return TARGET_URL;

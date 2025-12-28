@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.3] - 2025-12-26
 
+### ✨ Added
+- **适配器描述**
+  - 为每个适配器添加描述，可以在 WebUI 中的适配器设置页面点击查看每个适配器的描述和使用方法。
+
+## [3.4.3] - 2025-12-26
+
 ### 🐛 Fixed
 - **Gemini**：修复因懒加载导致的等待图片超时问题
 

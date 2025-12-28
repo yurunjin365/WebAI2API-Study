@@ -265,6 +265,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'chatgpt_text',
     displayName: 'ChatGPT (文本生成)',
+    description: '使用 ChatGPT 官网生成文本，支持多模型切换和图片上传。需要已登录的 ChatGPT 账户，若需要选择模型，请使用会员账号 (包含 K12 教室认证账号)。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

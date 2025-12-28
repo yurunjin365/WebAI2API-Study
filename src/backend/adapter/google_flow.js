@@ -256,6 +256,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'google_flow',
     displayName: 'Google Flow (图片生成)',
+    description: '使用 Google Labs Flow 工具生成图片，支持多张参考图片上传和横竖版选择。需要已登录的 Google 账户。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

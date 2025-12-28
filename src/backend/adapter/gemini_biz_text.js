@@ -309,6 +309,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'gemini_biz_text',
     displayName: 'Gemini Business (文本生成)',
+    description: '使用 Gemini Business 企业版生成文本，支持 Grounding 搜索模式。需要提供入口 URL 并已登录企业账户 (每个谷歌账户首次可以在官网点击免费试用获取30天使用资格)，与 gemini_biz 共享配置。',
 
     // 配置表单定义（与 gemini_biz 共享配置）
     configSchema: [

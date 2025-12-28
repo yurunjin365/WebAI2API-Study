@@ -212,6 +212,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'gemini',
     displayName: 'Google Gemini (图片、视频生成)',
+    description: '使用 Google Gemini 官网生成图片和视频，支持参考图片上传。需要已登录的 Google 账户，免费账户图片生成有速率限制，视频生成必须为会员账户才可使用。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

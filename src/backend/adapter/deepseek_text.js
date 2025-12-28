@@ -274,6 +274,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 export const manifest = {
     id: 'deepseek_text',
     displayName: 'DeepSeek (文本生成)',
+    description: '使用 DeepSeek 官网生成文本，支持 DeepThink 深度思考和 Search 搜索模式。需要已登录的 DeepSeek 账户。',
 
     // 入口 URL
     getTargetUrl(config, workerConfig) {

@@ -378,6 +378,7 @@ export function createAdminRouter(context) {
                         adapters.push({
                             id: adapter.id,
                             displayName: adapter.displayName || adapter.id,
+                            description: adapter.description || '',
                             modelCount: adapter.models?.length || 0,
                             models: (adapter.models || []).map(m => m.id),
                             configSchema: adapter.configSchema || []
