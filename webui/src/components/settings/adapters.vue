@@ -10,6 +10,12 @@ const drawerVisible = ref(false);
 const currentAdapter = ref(null);
 const currentConfig = reactive({});
 
+// 模型过滤配置
+const modelFilter = reactive({
+    mode: 'blacklist',
+    list: []
+});
+
 // 挂载时获取数据
 onMounted(async () => {
     await Promise.all([
@@ -20,6 +26,45 @@ onMounted(async () => {
 
 // 适配器列表
 const adapters = computed(() => settingsStore.adaptersMeta);
+
+// 检查模型是否启用
+const isModelEnabled = (modelId) => {
+    const inList = modelFilter.list.includes(modelId);
+    if (modelFilter.mode === 'whitelist') {
+        return inList;
+    } else {
+        return !inList;
+    }
+};
+
+// 切换模型启用/禁用
+const toggleModel = (modelId, enabled) => {
+    const idx = modelFilter.list.indexOf(modelId);
+
+    if (modelFilter.mode === 'whitelist') {
+        // 白名单模式：启用=加入列表，禁用=移出列表
+        if (enabled && idx === -1) {
+            modelFilter.list.push(modelId);
+        } else if (!enabled && idx !== -1) {
+            modelFilter.list.splice(idx, 1);
+        }
+    } else {
+        // 黑名单模式：禁用=加入列表，启用=移出列表
+        if (!enabled && idx === -1) {
+            modelFilter.list.push(modelId);
+        } else if (enabled && idx !== -1) {
+            modelFilter.list.splice(idx, 1);
+        }
+    }
+};
+
+// 切换模式时重置列表
+const onModeChange = (newMode) => {
+    if (newMode !== modelFilter.mode) {
+        modelFilter.mode = newMode;
+        modelFilter.list = [];
+    }
+};
 
 // 打开抽屉进行编辑
 const handleEdit = (adapter) => {
@@ -41,6 +86,11 @@ const handleEdit = (adapter) => {
         });
     }
 
+    // 初始化模型过滤配置
+    const filter = adapter.modelFilter || { mode: 'blacklist', list: [] };
+    modelFilter.mode = filter.mode || 'blacklist';
+    modelFilter.list = [...(filter.list || [])];
+
     drawerVisible.value = true;
 };
 
@@ -49,11 +99,22 @@ const handleSave = async () => {
     if (!currentAdapter.value) return;
 
     const configToSave = {
-        [currentAdapter.value.id]: { ...currentConfig }
+        [currentAdapter.value.id]: {
+            ...currentConfig,
+            modelFilter: {
+                mode: modelFilter.mode,
+                list: [...modelFilter.list]
+            }
+        }
     };
 
     const success = await settingsStore.saveAdapterConfig(configToSave);
     if (success) {
+        // 更新本地缓存
+        const adapter = settingsStore.adaptersMeta.find(a => a.id === currentAdapter.value.id);
+        if (adapter) {
+            adapter.modelFilter = { mode: modelFilter.mode, list: [...modelFilter.list] };
+        }
         drawerVisible.value = false;
     }
 };
@@ -76,7 +137,7 @@ const handleSave = async () => {
                                         style="font-size: 18px; color: #1890ff; margin-right: 8px; flex-shrink: 0;" />
                                     <span
                                         style="font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{
-                                        item.id }}</span>
+                                            item.id }}</span>
                                 </div>
                                 <SettingOutlined style="font-size: 16px; color: #8c8c8c; flex-shrink: 0;" />
                             </div>
@@ -95,11 +156,39 @@ const handleSave = async () => {
                 {{ currentAdapter.description }}
             </div>
 
+            <!-- 模型管理折叠面板 -->
+            <a-collapse v-if="currentAdapter.models && currentAdapter.models.length > 0" style="margin-bottom: 16px;">
+                <a-collapse-panel key="models" header="模型管理">
+                    <!-- 模式选择 -->
+                    <div style="margin-bottom: 12px;">
+                        <span style="margin-right: 12px; color: #666;">过滤模式:</span>
+                        <a-radio-group :value="modelFilter.mode" @change="e => onModeChange(e.target.value)">
+                            <a-radio value="blacklist">黑名单</a-radio>
+                            <a-radio value="whitelist">白名单</a-radio>
+                        </a-radio-group>
+                    </div>
+                    <div style="font-size: 12px; color: #999; margin-bottom: 12px;">
+                        {{ modelFilter.mode === 'blacklist' ? '关闭的模型将被禁用，其他模型可用' : '仅开启的模型可用，其他模型禁用' }}
+                    </div>
+
+                    <!-- 模型列表 -->
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <div v-for="modelId in currentAdapter.models" :key="modelId"
+                            style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                            <span style="font-size: 13px; color: #333;">{{ modelId }}</span>
+                            <a-switch :checked="isModelEnabled(modelId)"
+                                @change="checked => toggleModel(modelId, checked)" size="small" />
+                        </div>
+                    </div>
+                </a-collapse-panel>
+            </a-collapse>
+
+            <!-- 其他配置项 -->
             <div v-if="!currentAdapter.configSchema || currentAdapter.configSchema.length === 0">
-                <a-empty description="该适配器没有可配置项" />
+                <a-empty v-if="!currentAdapter.models || currentAdapter.models.length === 0" description="该适配器没有可配置项" />
             </div>
 
-            <a-form layout="vertical" v-else>
+            <a-form layout="vertical" v-if="currentAdapter.configSchema && currentAdapter.configSchema.length > 0">
                 <template v-for="field in currentAdapter.configSchema" :key="field.key">
                     <a-form-item :label="field.label" :required="field.required">
                         <!-- 字符串输入 -->

@@ -122,6 +122,13 @@ backend:
     lmarena:
       # 开启后直接返回图片 URL (但其他不支持该选项的适配器仍然会返回 Base64)
       returnUrl: false
+      # 该适配器的模型黑白名单 (每个适配器都可以使用该功能，配置上级为适配器ID，推荐使用 WebUI 修改)
+      # modelFilter:
+      #  mode: whitelist                        # 白名单whitelist 黑名单blacklist
+      #  list:                                  # 仅启用和仅禁用的模型列表
+      #    - gemini-3-pro-image-preview
+      #    - gemini-3-pro-image-preview-2k
+      #    - gemini-2.5-flash-image-preview
       
 
 queue:

@@ -371,16 +371,19 @@ export function createAdminRouter(context) {
             if (method === 'GET' && pathname === '/adapters') {
                 const adapters = [];
                 const adapterIds = registry.getAdapterIds();
+                const adapterConfig = getAdaptersConfig();
 
                 for (const id of adapterIds) {
                     const adapter = registry.getAdapter(id);
                     if (adapter) {
+                        const config = adapterConfig[id] || {};
                         adapters.push({
                             id: adapter.id,
                             displayName: adapter.displayName || adapter.id,
                             description: adapter.description || '',
                             modelCount: adapter.models?.length || 0,
                             models: (adapter.models || []).map(m => m.id),
+                            modelFilter: config.modelFilter || { mode: 'blacklist', list: [] },
                             configSchema: adapter.configSchema || []
                         });
                     }

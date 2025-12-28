@@ -33,7 +33,41 @@ class AdapterRegistry {
     constructor() {
         /** @type {Map<string, object>} */
         this.adapters = new Map();
+        /** @type {object} 适配器配置（来自 config.yaml） */
+        this.adapterConfig = {};
         this.loaded = false;
+    }
+
+    /**
+     * 设置适配器配置
+     * @param {object} config - 适配器配置对象
+     */
+    setAdapterConfig(config) {
+        this.adapterConfig = config || {};
+    }
+
+    /**
+     * 检查模型是否启用
+     * @param {string} adapterId - 适配器 ID
+     * @param {string} modelId - 模型 ID
+     * @returns {boolean}
+     */
+    isModelEnabled(adapterId, modelId) {
+        const adapterCfg = this.adapterConfig[adapterId];
+        if (!adapterCfg?.modelFilter) return true;
+
+        const { mode, list } = adapterCfg.modelFilter;
+        if (!list || !Array.isArray(list)) return true;
+
+        const inList = list.includes(modelId);
+
+        if (mode === 'whitelist') {
+            // 白名单模式：只有在列表中的才启用
+            return inList;
+        } else {
+            // 黑名单模式（默认）：在列表中的被禁用
+            return !inList;
+        }
     }
 
     /**
@@ -192,14 +226,16 @@ class AdapterRegistry {
             return { object: 'list', data: [] };
         }
 
-        const data = adapter.models.map(m => ({
-            id: m.id,
-            object: 'model',
-            created: Math.floor(Date.now() / 1000),
-            owned_by: id,
-            image_policy: m.imagePolicy,
-            type: m.type || 'image' // Default to image if not specified
-        }));
+        const data = adapter.models
+            .filter(m => this.isModelEnabled(id, m.id))
+            .map(m => ({
+                id: m.id,
+                object: 'model',
+                created: Math.floor(Date.now() / 1000),
+                owned_by: id,
+                image_policy: m.imagePolicy,
+                type: m.type || 'image'
+            }));
 
         return { object: 'list', data };
     }
@@ -213,7 +249,9 @@ class AdapterRegistry {
     supportsModel(adapterId, modelId) {
         const adapter = this.getAdapter(adapterId);
         if (!adapter?.models) return false;
-        return adapter.models.some(m => m.id === modelId);
+        // 检查模型是否存在且未被禁用
+        const modelExists = adapter.models.some(m => m.id === modelId);
+        return modelExists && this.isModelEnabled(adapterId, modelId);
     }
 
     /**

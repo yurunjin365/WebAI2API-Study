@@ -34,6 +34,10 @@ export class PoolManager {
         // 先加载所有适配器
         await registry.loadAll();
 
+        // 注入适配器配置（用于模型过滤）
+        const adapterConfig = this.config.backend?.adapter || {};
+        registry.setAdapterConfig(adapterConfig);
+
         // 解析登录模式参数
         let loginWorkerName = null;
         const loginArg = process.argv.find(arg => arg.startsWith('-login'));
