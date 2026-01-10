@@ -45,6 +45,7 @@
 | [**DeepSeek**](https://chat.deepseek.com/) | ✅ | 🚫 | 🚫 | 
 | [**Sora**](https://sora.chatgpt.com/) | 🚫 | 🚫 | ✅ | 
 | [**Google Flow**](https://labs.google/fx/zh/tools/flow) | 🚫 | ✅ | ❌ | 
+| [**豆包**](https://www.doubao.com/) | ✅ | ✅ | ❌ | 
 | 待续... | - | - | - | 
 
 > [!NOTE]

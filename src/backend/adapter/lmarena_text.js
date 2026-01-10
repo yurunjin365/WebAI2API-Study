@@ -58,28 +58,24 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         await safeClick(page, textareaSelector, { bias: 'input' });
         await fillPrompt(page, textareaSelector, prompt, meta);
 
-        // 4. 配置请求拦截 (用于修改模型 ID 为 codeName)
-        await page.unroute('**/*').catch(() => { });
+        // 4. 选择模型 
+        if (modelId) {
+            logger.debug('适配器', `选择模型: ${modelId}`, meta);
+            const modelCombobox = page.locator('#chat-area')
+                .locator('button[role="combobox"][aria-haspopup="dialog"]')
+                .last();
 
-        if (codeName) {
-            logger.debug('适配器', `准备拦截请求`, meta);
-            await page.route(url => url.href.includes('/nextjs-api/stream'), async (route) => {
-                const request = route.request();
-                if (request.method() !== 'POST') return route.continue();
+            await modelCombobox.waitFor({ state: 'visible', timeout: 10000 });
+            await safeClick(page, modelCombobox, { bias: 'button' });
+            await sleep(500, 800);
 
-                try {
-                    const postData = request.postDataJSON();
-                    if (postData && postData.modelAId) {
-                        logger.info('适配器', `已拦截请求并修改模型: ${postData.modelAId} -> ${codeName}`, meta);
-                        postData.modelAId = codeName;
-                        await route.continue({ postData: JSON.stringify(postData) });
-                        return;
-                    }
-                } catch (e) {
-                    logger.error('适配器', '拦截处理异常', { ...meta, error: e.message });
-                }
-                await route.continue();
-            });
+            // 模拟粘贴输入模型 ID 并回车
+            await page.evaluate((text) => {
+                document.execCommand('insertText', false, text);
+            }, modelId);
+            await sleep(300, 500);
+            await page.keyboard.press('Enter');
+            await sleep(500, 800);
         }
 
         // 5. 提交表单 (submit)
@@ -157,9 +153,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         logger.error('适配器', '生成任务失败', { ...meta, error: err.message });
         return { error: `生成任务失败: ${err.message}` };
     } finally {
-        // 清理拦截器
-        if (codeName) await page.unroute('**/*').catch(() => { });
-
         // 任务结束，将鼠标移至安全区域
         await moveMouseAway(page);
     }
@@ -178,10 +171,11 @@ export const manifest = {
         return TARGET_URL;
     },
 
-    // 模型列表（从 models.js 迁移）
+    // 模型列表（根据最新支持列表整理）
     models: [
+        // --- 文本模型 ---
         { id: 'claude-opus-4-5-20251101-thinking-32k', codeName: '019ab8b2-9bcf-79b5-9fb5-149a7c67b7c0', imagePolicy: 'forbidden', type: 'text' },
-        { id: 'claude-opus-4-5-20251101', 'codeName': '019adbec-8396-71cc-87d5-b47f8431a6a6', 'imagePolicy': 'forbidden', "type": "text" },
+        { id: 'claude-opus-4-5-20251101', codeName: '019adbec-8396-71cc-87d5-b47f8431a6a6', imagePolicy: 'forbidden', type: 'text' },
         { id: 'gemini-3-pro', codeName: '019a98f7-afcd-779f-8dcb-856cc3b3f078', imagePolicy: 'optional', type: 'text' },
         { id: 'grok-4.1-thinking', codeName: '019a9389-a9d3-77a8-afbb-4fe4dd3d8630', imagePolicy: 'forbidden', type: 'text' },
         { id: 'grok-4.1', codeName: '019a9389-a4d8-748d-9939-b4640198302e', imagePolicy: 'forbidden', type: 'text' },
@@ -219,7 +213,6 @@ export const manifest = {
         { id: 'gemini-2.5-flash', codeName: '0199f059-3877-7cfe-bc80-e01b1a4a83de', imagePolicy: 'optional', type: 'text' },
         { id: 'gemini-2.5-flash-preview-09-2025', codeName: 'fc700d46-c4c1-4fec-88b5-f086876ae0bb', imagePolicy: 'optional', type: 'text' },
         { id: 'claude-haiku-4-5-20251001', codeName: '0199e8e9-01ed-73e0-96ba-cf43b286bf10', imagePolicy: 'forbidden', type: 'text' },
-        { id: 'grok-4-fast-reasoning', codeName: '19b3730a-0369-49ba-ad9c-09e7337937f0', imagePolicy: 'forbidden', type: 'text' },
         { id: 'qwen3-next-80b-a3b-instruct', codeName: '351fe482-eb6c-4536-857b-909e16c0bf52', imagePolicy: 'forbidden', type: 'text' },
         { id: 'longcat-flash-chat', codeName: '6fcbe051-f521-4dc7-8986-c429eb6191bf', imagePolicy: 'forbidden', type: 'text' },
         { id: 'qwen3-235b-a22b-no-thinking', codeName: '1a400d9a-f61c-4bc2-89b4-a9b7e77dff12', imagePolicy: 'forbidden', type: 'text' },
@@ -270,7 +263,6 @@ export const manifest = {
         { id: 'gpt-oss-20b', codeName: 'ec3beb4b-7229-4232-bab9-670ee52dd711', imagePolicy: 'forbidden', type: 'text' },
         { id: 'mercury', codeName: '019a6f77-e20d-7c1d-a7cd-8bd926e7395d', imagePolicy: 'forbidden', type: 'text' },
         { id: 'olmo-3-32b-think', codeName: '019ac2ef-27e1-769f-8258-d131f79e28ef', imagePolicy: 'forbidden', type: 'text' },
-        { id: 'magistral-medium-2506', codeName: '6337f479-2fc8-4311-a76b-8c957765cd68', imagePolicy: 'forbidden', type: 'text' },
         { id: 'mistral-small-3.1-24b-instruct-2503', codeName: '69f5d38a-45f5-4d3a-9320-b866a4035ed9', imagePolicy: 'optional', type: 'text' },
         { id: 'ibm-granite-h-small', codeName: '4ddb69f5-391a-4f78-af92-7d7328c18ab1', imagePolicy: 'forbidden', type: 'text' },
         { id: 'qwen3-vl-8b-thinking', codeName: '0199e3d1-a308-77b9-a650-41453e8ef2fb', imagePolicy: 'optional', type: 'text' },
@@ -280,9 +272,29 @@ export const manifest = {
         { id: 'gpt-5.2-high', codeName: '019b1448-dafa-7f92-90c3-50e159c2263c', imagePolicy: 'optional', type: 'text' },
         { id: 'gpt-5.2', codeName: '019b1448-d548-78f4-8b98-788d72cbd057', imagePolicy: 'optional', type: 'text' },
         { id: 'glm-4.6v-flash', codeName: '019b1536-49c0-73b2-8d45-403b8571568d', imagePolicy: 'optional', type: 'text' },
-        { id: 'qwen3-omni-flash', codeName: '0199c9dc-e157-7458-bd49-5942363be215', imagePolicy: 'optional', type: 'text' },
         { id: 'mimo-vl-7b-rl-2508', codeName: '1c0259b5-dff7-48ce-bca1-b6957675463b', imagePolicy: 'optional', type: 'text' },
-        { id: 'mimo-7b', codeName: 'ee3588cd-1fe1-484a-bcc9-f92065b8380c', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'minimax-m2.1-preview', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'mimo-v2-flash (thinking)', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'glm-4.7', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'amazon-nova-experimental-chat-11-10', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'grok-4-1-fast-non-reasoning', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'gemini-3-flash', codeName: '', imagePolicy: 'optional', type: 'text' },
+        { id: 'nvidia-nemotron-3-nano-30b-a3b-bf16', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'olmo-3.1-32b-instruct', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'olmo-3.1-32b-think', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'gemini-3-flash (thinking-minimal)', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'mimo-v2-flash', codeName: '', imagePolicy: 'optional', type: 'text' },
+        { id: 'ernie-5.0-preview-1220', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'qwen3-max-2025-09-26', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'ernie-5.0-preview-1203', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'mimo-7b', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'qwen-vl-max-2025-08-13', codeName: '', imagePolicy: 'optional', type: 'text' },
+        { id: 'claude-sonnet-4-20250514-thinking-32k', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'minimax-m2-preview', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'ernie-5.0-preview-1120', codeName: '', imagePolicy: 'forbidden', type: 'text' },
+        { id: 'gpt-5-high-new-system-prompt', codeName: '', imagePolicy: 'optional', type: 'text' },
+
+        // --- 搜索模型 ---
         { id: 'gemini-3-pro-grounding', codeName: '019abdb7-6957-71c1-96a2-bfa79e8a094f', imagePolicy: 'forbidden', type: 'text', search: true },
         { id: 'gpt-5.1-search', codeName: '019abdb7-50a5-7c05-9308-4491d069578b', imagePolicy: 'forbidden', type: 'text', search: true },
         { id: 'grok-4-fast-search', codeName: '9217ac2d-91bc-4391-aa07-b8f9e2cf11f2', imagePolicy: 'forbidden', type: 'text', search: true },
@@ -295,7 +307,8 @@ export const manifest = {
         { id: 'claude-opus-4-search', codeName: '25bcb878-749e-49f4-ac05-de84d964bcee', imagePolicy: 'forbidden', type: 'text', search: true },
         { id: 'diffbot-small-xl', codeName: '0862885e-ef53-4d0d-b9c4-4c8f68f453ce', imagePolicy: 'forbidden', type: 'text', search: true },
         { id: 'grok-4-1-fast-search', codeName: '019af19c-0658-7566-9c60-112ae5bdb8db', imagePolicy: 'forbidden', type: 'text', search: true },
-        { id: 'gpt-5.2-search', codeName: '019b1448-f74a-72de-b25d-8666618f8c5a', imagePolicy: 'forbidden', type: 'text', search: true }
+        { id: 'gpt-5.2-search', codeName: '019b1448-f74a-72de-b25d-8666618f8c5a', imagePolicy: 'forbidden', type: 'text', search: true },
+        { id: 'gpt-5.1-search-sp', codeName: '', imagePolicy: 'forbidden', type: 'text', search: true }
     ],
 
     // 无需导航处理器

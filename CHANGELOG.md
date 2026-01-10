@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.4] - 2026-01-10
 
+### ✨ Added
+- **新增适配器**
+  - 支持豆包图片生成与文本生成适配器
+
 ### 🐛 Fixed
 - **未捕获的超时错误**
   - 修复因未捕获的超时错误导致的程序崩溃
+- **模型选择**
+  - 修复 LMArena 模型选择的问题并同步模型列表
 
 ## [3.4.3] - 2025-12-26
 

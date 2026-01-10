@@ -66,7 +66,7 @@ export function normalizePageError(err, meta = {}) {
     // 兼容原生 TimeoutError (其他地方抛出的)
     if (err.name === 'TimeoutError' || err.message?.includes('Timeout')) {
         logger.error('适配器', '请求超时', meta);
-        return { error: '请求超时 (120秒), 请检查网络或稍后重试', code: ADAPTER_ERRORS.TIMEOUT_ERROR, retryable: true };
+        return { error: '请求超时, 请检查网络或稍后重试', code: ADAPTER_ERRORS.TIMEOUT_ERROR, retryable: true };
     }
     return null;
 }

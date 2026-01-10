@@ -260,23 +260,30 @@ export async function safeScroll(page, target, options = {}) {
  * 模拟人类键盘输入
  * 支持 CSS selector 和 ElementHandle 两种输入
  * @param {import('playwright-core').Page} page - Playwright 页面对象
- * @param {string|import('playwright-core').ElementHandle} target - CSS 选择器或元素句柄
+ * @param {string|import('playwright-core').ElementHandle|null} target - CSS 选择器、元素句柄，或 null（需配合 skipFocus 使用）
  * @param {string} text - 要输入的文本
+ * @param {object} [options] - 可选配置
+ * @param {boolean} [options.skipFocus=false] - 跳过元素定位和 focus，直接输入（适用于已获得焦点的场景）
  * @returns {Promise<void>}
  */
-export async function humanType(page, target, text) {
-    let el;
+export async function humanType(page, target, text, options = {}) {
+    const { skipFocus = false } = options;
 
-    // 判断是 selector 还是 ElementHandle
-    if (typeof target === 'string') {
-        el = await page.$(target);
-        if (!el) throw new Error(`Element not found: ${target}`);
-    } else {
-        el = target;
-        if (!el) throw new Error(`Element handle invalid`);
+    // 如果不跳过 focus，需要定位并聚焦元素
+    if (!skipFocus) {
+        let el;
+
+        // 判断是 selector 还是 ElementHandle
+        if (typeof target === 'string') {
+            el = await page.$(target);
+            if (!el) throw new Error(`Element not found: ${target}`);
+        } else {
+            el = target;
+            if (!el) throw new Error(`Element handle invalid`);
+        }
+
+        await el.focus();
     }
-
-    await el.focus();
 
     // 智能输入策略
     if (text.length < 50) {
