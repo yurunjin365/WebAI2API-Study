@@ -79,7 +79,8 @@ const handleSave = async () => {
                     <div style="margin-bottom: 8px;">
                         <div style="font-weight: 600; margin-bottom: 4px;">无头模式</div>
                         <div style="font-size: 12px; color: #8c8c8c; margin-bottom: 8px;">
-                            启用后浏览器无界面化运行（登录模式和 Xvfb 模式会强行禁用）
+                            启用后浏览器无界面化运行<br>
+                            登录模式和 Xvfb 模式会无视该设置强行禁用无头模式
                         </div>
                         <a-switch v-model:checked="formData.headless" />
                         <span style="margin-left: 8px;">
@@ -91,9 +92,10 @@ const handleSave = async () => {
                 <!-- 站点隔离 (Fission) -->
                 <a-col :xs="24" :md="12">
                     <div style="margin-bottom: 8px;">
-                        <div style="font-weight: 600; margin-bottom: 4px;">站点隔离 (Fission)</div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">站点隔离 (fission.autostart)</div>
                         <div style="font-size: 12px; color: #8c8c8c; margin-bottom: 8px;">
                             关闭可低内存占用，适合低配服务器<br>
+                            正常 FireFox 用户是默认开启的，请酌情关闭<br>
                             <span style="color: #faad14;">⚠️ 反爬检测可能通过检测单进程或者跨进程延迟来识别自动化特征</span>
                         </div>
                         <a-switch v-model:checked="formData.fission" />

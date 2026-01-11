@@ -95,6 +95,9 @@ export const ADAPTER_ERRORS = {
 
     /** 需要登录 */
     AUTH_REQUIRED: 'AUTH_REQUIRED',
+
+    /** 内容被阻止 (API/页面检测到错误关键词) */
+    CONTENT_BLOCKED: 'CONTENT_BLOCKED',
 };
 
 // ==========================================

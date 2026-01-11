@@ -68,6 +68,18 @@ export function normalizePageError(err, meta = {}) {
         logger.error('适配器', '请求超时', meta);
         return { error: '请求超时, 请检查网络或稍后重试', code: ADAPTER_ERRORS.TIMEOUT_ERROR, retryable: true };
     }
+    // PAGE_ERROR_DETECTED: waitApiResponse 页面 UI 中检测到的错误关键词
+    if (err.message?.startsWith('PAGE_ERROR_DETECTED:')) {
+        const keyword = err.message.replace('PAGE_ERROR_DETECTED: ', '');
+        logger.error('适配器', `页面检测到错误: ${keyword}`, meta);
+        return { error: `内容被阻止: ${keyword}`, code: ADAPTER_ERRORS.CONTENT_BLOCKED, retryable: false };
+    }
+    // API_ERROR_DETECTED: waitApiResponse API 响应体中检测到的错误关键词
+    if (err.message?.startsWith('API_ERROR_DETECTED:')) {
+        const keyword = err.message.replace('API_ERROR_DETECTED: ', '');
+        logger.error('适配器', `API 响应检测到错误: ${keyword}`, meta);
+        return { error: `内容被阻止: ${keyword}`, code: ADAPTER_ERRORS.CONTENT_BLOCKED, retryable: false };
+    }
     return null;
 }
 
