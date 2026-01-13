@@ -3,8 +3,7 @@
  * @description 页面认证锁、输入框等待、表单提交等页面级操作
  */
 
-import { sleep, humanType, safeClick, isPageValid, createPageCloseWatcher, getRealViewport, clamp, random } from '../engine/utils.js';
-import { logger } from '../../utils/logger.js';
+import { sleep, safeClick, isPageValid, createPageCloseWatcher, getRealViewport, clamp, random } from '../engine/utils.js';
 
 // ==========================================
 // 页面认证锁
@@ -90,56 +89,6 @@ export async function waitForInput(page, selectorOrLocator, options = {}) {
         await safeClick(page, selectorOrLocator, { bias: 'input' });
         await sleep(500, 1000);
     }
-}
-
-/**
- * 填写提示词 (通用)
- * @param {import('playwright-core').Page} page - Playwright 页面对象
- * @param {string|import('playwright-core').ElementHandle} target - 输入目标
- * @param {string} prompt - 提示词内容
- * @param {object} [meta={}] - 日志元数据
- */
-export async function fillPrompt(page, target, prompt, meta = {}) {
-    logger.info('适配器', '正在输入提示词...', meta);
-    await humanType(page, target, prompt);
-    await sleep(800, 1500);
-}
-
-/**
- * 提交表单 (带回退逻辑)
- * @param {import('playwright-core').Page} page - Playwright 页面对象
- * @param {object} options - 提交选项
- * @param {string} options.btnSelector - 按钮选择器
- * @param {string|import('playwright-core').ElementHandle} [options.inputTarget] - 输入框
- * @param {object} [options.meta={}] - 日志元数据
- * @returns {Promise<boolean>} 是否成功点击按钮
- */
-export async function submit(page, options = {}) {
-    const { btnSelector, inputTarget, meta = {} } = options;
-
-    try {
-        const btnHandle = await page.$(btnSelector);
-        if (btnHandle) {
-            await btnHandle.scrollIntoViewIfNeeded().catch(() => { });
-            await sleep(200, 400);
-            await safeClick(page, btnHandle, { bias: 'button' });
-            return true;
-        }
-    } catch (e) {
-        // 继续回退逻辑
-    }
-
-    // 回退：按回车提交
-    logger.warn('适配器', '未找到发送按钮，尝试回车提交', meta);
-    if (inputTarget) {
-        if (typeof inputTarget === 'string') {
-            await page.focus(inputTarget).catch(() => { });
-        } else {
-            await inputTarget.focus().catch(() => { });
-        }
-    }
-    await page.keyboard.press('Enter');
-    return false;
 }
 
 // ==========================================

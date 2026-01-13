@@ -4,12 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     pasteImages
 } from '../engine/utils.js';
 import {
-    fillPrompt,
-    submit,
     waitApiResponse,
     normalizePageError,
     normalizeHttpError,
@@ -42,40 +41,43 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, textareaSelector, { click: false });
-        await sleep(1500, 2500);
+        //await sleep(1500, 2500);
 
-        // 2. 上传图片 (uploadImages - 仅取第一张)
+        // 2. 上传图片 (仅取第一张)
         if (imgPaths && imgPaths.length > 0) {
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片`, meta);
             const singleImage = [imgPaths[0]];
             if (imgPaths.length > 1) {
                 logger.warn('适配器', `此后端仅支持1张图片, 已丢弃 ${imgPaths.length - 1} 张`, meta);
             }
             await pasteImages(page, textareaSelector, singleImage);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词 (fillPrompt)
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, textareaSelector, { bias: 'input' });
-        await fillPrompt(page, textareaSelector, prompt, meta);
+        await humanType(page, textareaSelector, prompt);
 
-        // 4. 提交表单 (submit)
-        logger.debug('适配器', '点击发送...', meta);
-        await submit(page, {
-            btnSelector: 'div[class*="_sendButton_"]',
-            inputTarget: textareaSelector,
+        // 4. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const responsePromise = waitApiResponse(page, {
+            urlMatch: 'v1/generateContent',
+            method: 'POST',
+            timeout: 120000,
             meta
         });
 
+        // 5. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
+        await safeClick(page, 'div[class*="_sendButton_"]', { bias: 'button' });
+
         logger.info('适配器', '等待生成结果...', meta);
 
-        // 5. 等待 API 响应 (waitApiResponse)
+        // 6. 等待 API 响应
         let response;
         try {
-            response = await waitApiResponse(page, {
-                urlMatch: 'v1/generateContent',
-                method: 'POST',
-                timeout: 120000,
-                meta
-            });
+            response = await responsePromise;
         } catch (e) {
             // 使用公共错误处理
             const pageError = normalizePageError(e, meta);

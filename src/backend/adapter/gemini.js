@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     normalizeHttpError,
     moveMouseAway,
@@ -43,15 +43,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, inputLocator, { click: false });
-        await sleep(1500, 2500);
 
-        // 2. 上传图片 (使用 filechooser 事件，因为 Firefox 不会创建 DOM input 元素)
+        // 2. 上传图片
         if (imgPaths && imgPaths.length > 0) {
-            // 点击加号按钮打开菜单
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
             logger.debug('适配器', '点击加号按钮...', meta);
             const uploadMenuBtn = page.getByRole('button', { name: 'Open upload file menu' });
             await safeClick(page, uploadMenuBtn, { bias: 'button' });
-            await sleep(500, 1000);
 
             // 使用公共函数上传文件
             const uploadFilesBtn = page.getByRole('button', { name: /Upload files/ });
@@ -63,20 +61,18 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                         url.includes('upload_id=');
                 }
             });
-
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, inputLocator, { bias: 'input' });
-        await fillPrompt(page, inputLocator, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, inputLocator, prompt);
 
         // 4. 点击 Tools 按钮启用图片/视频生成
         logger.debug('适配器', '点击 Tools 按钮...', meta);
         const toolsBtn = page.getByRole('button', { name: 'Tools' });
         await safeClick(page, toolsBtn, { bias: 'button' });
-        await sleep(500, 1000);
 
         // 检测是否是视频模型
         const isVideoModel = modelId && modelId.startsWith('veo-');
@@ -99,23 +95,26 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             const createImagesBtn = page.getByRole('button', { name: 'Create images' });
             await safeClick(page, createImagesBtn, { bias: 'button' });
         }
-        await sleep(500, 1000);
 
-        // 6. 点击发送
-        logger.debug('适配器', '点击发送...', meta);
+        // 6. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const streamApiResponsePromise = waitApiResponse(page, {
+            urlMatch: 'assistant.lamda.BardFrontendService/StreamGenerate',
+            method: 'POST',
+            timeout: 120000,
+            meta
+        });
+
+        // 7. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
         await safeClick(page, sendBtnLocator, { bias: 'button' });
 
         logger.info('适配器', '等待生成结果...', meta);
 
-        // 7. 等待 StreamGenerate API
+        // 8. 等待 StreamGenerate API
         let streamApiResponse;
         try {
-            streamApiResponse = await waitApiResponse(page, {
-                urlMatch: 'assistant.lamda.BardFrontendService/StreamGenerate',
-                method: 'POST',
-                timeout: 120000,
-                meta
-            });
+            streamApiResponse = await streamApiResponsePromise;
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;

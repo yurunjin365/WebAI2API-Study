@@ -6,8 +6,6 @@
  * - 页面交互 (page.js):
  *   - waitForPageAuth/lockPageAuth/unlockPageAuth: 页面认证锁机制
  *   - waitForInput: 等待输入框出现（自动等待认证完成）
- *   - fillPrompt: 拟人化输入提示词
- *   - submit: 提交表单（点击按钮失败则回退为回车）
  *   - gotoWithCheck: 导航到 URL 并检测 HTTP 错误
  *   - moveMouseAway: 任务完成后移开鼠标
  *   - waitApiResponse: 等待 API 响应（带页面关闭监听）
@@ -29,8 +27,6 @@ export {
     unlockPageAuth,
     isPageAuthLocked,
     waitForInput,
-    fillPrompt,
-    submit,
     gotoWithCheck,
     tryGotoWithCheck,
     moveMouseAway,

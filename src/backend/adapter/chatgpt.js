@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -41,14 +41,14 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
         // 2. 上传图片
         if (imgPaths && imgPaths.length > 0) {
+
             const expectedUploads = imgPaths.length;
             let uploadedCount = 0;
             let processedCount = 0;
-
+            logger.info('适配器', `开始上传 ${expectedUploads} 张图片...`, meta);
             logger.debug('适配器', '点击添加文件按钮...', meta);
             const addFilesBtn = page.getByRole('button', { name: 'Add files and more' });
 
@@ -75,17 +75,16 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                     return false;
                 }
             });
-
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
-        // 4. 点击发送
-        logger.debug('适配器', '点击发送...', meta);
+        // 4. 发送提示词
+        logger.debug('适配器', '发送提示词...', meta);
         await safeClick(page, sendBtnLocator, { bias: 'button' });
 
         logger.info('适配器', '等待生成结果...', meta);
@@ -96,7 +95,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             conversationResponse = await waitApiResponse(page, {
                 urlMatch: 'backend-api/f/conversation',
                 method: 'POST',
-                timeout: 180000,  // 图片生成可能较慢
+                timeout: 120000,  // 图片生成可能较慢
                 meta
             });
         } catch (e) {
@@ -131,15 +130,16 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
                     // 检查是否生成完成：
                     // 1. 必须有 file_name
-                    // 2. file_name 不能包含 .part（表示中间状态）
-                    // 3. 必须有 download_url
-                    if (fn && !fn.includes('.part') && dl) {
+                    // 2. file_name 开头必须是 user- (生成的图片)
+                    // 3. file_name 不能包含 .part（表示中间状态）
+                    // 4. 必须有 download_url
+                    if (fn && fn.startsWith('user-') && !fn.includes('.part') && dl) {
                         fileName = fn;
                         downloadUrl = dl;
                         logger.info('适配器', `图片生成完成: ${fn}`, meta);
                         return true;
                     } else {
-                        logger.debug('适配器', `图片生成中: ${fn || '无文件名'}`, meta);
+                        logger.debug('适配器', `图片生成中或非生成图片: ${fn || '无文件名'}`, meta);
                         return false;
                     }
                 } catch {
@@ -197,7 +197,7 @@ export const manifest = {
 
     // 模型列表
     models: [
-        { id: 'gpt-image-1', imagePolicy: 'optional' }
+        { id: 'gpt-image-1.5', imagePolicy: 'optional' }
     ],
 
     // 无需导航处理器

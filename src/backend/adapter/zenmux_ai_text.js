@@ -4,12 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     pasteImages
 } from '../engine/utils.js';
 import {
-    fillPrompt,
-    submit,
     normalizePageError,
     normalizeHttpError,
     waitApiResponse,
@@ -52,7 +51,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await newChatBtn.waitFor({ state: 'visible', timeout: 5000 });
             await safeClick(page, newChatBtn, { bias: 'button' });
             logger.debug('适配器', '已点击 New Chat 按钮', meta);
-            await sleep(500, 1000);
         } catch (e) {
             logger.debug('适配器', `New Chat 按钮未找到或已在新会话中: ${e.message}`, meta);
         }
@@ -60,14 +58,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 1. 等待输入框加载
         logger.debug('适配器', '正在寻找输入框...', meta);
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1000, 1500);
 
         // 2. 上传图片 (如果有)
         if (imgPaths && imgPaths.length > 0) {
             const expectedUploads = imgPaths.length;
             let uploadedCount = 0;
 
-            logger.info('适配器', `准备上传 ${expectedUploads} 张图片`, meta);
+            logger.info('适配器', `开始上传 ${expectedUploads} 张图片`, meta);
 
             await pasteImages(page, INPUT_SELECTOR, imgPaths, {
                 uploadValidator: (response) => {
@@ -87,15 +84,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                     return false;
                 }
             });
-
-            await sleep(1000, 2000);
             logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
         // 4. 设置请求拦截器（修改模型ID和providers）
         logger.debug('适配器', '已启用请求拦截', meta);
@@ -138,25 +133,25 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await route.continue();
         });
 
-        // 5. 提交
-        logger.debug('适配器', '点击发送...', meta);
-        await submit(page, {
-            btnSelector: SEND_BUTTON_SELECTOR,
-            inputTarget: INPUT_SELECTOR,
+        // 5. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const apiResponsePromise = waitApiResponse(page, {
+            urlMatch: 'v1/chat/completions',
+            method: 'POST',
+            timeout: 120000,
             meta
         });
 
+        // 6. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
+        await safeClick(page, SEND_BUTTON_SELECTOR, { bias: 'button' });
+
         logger.info('适配器', '等待生成结果中...', meta);
 
-        // 5. 等待 API 响应
+        // 7. 等待 API 响应
         let apiResponse;
         try {
-            apiResponse = await waitApiResponse(page, {
-                urlMatch: 'v1/chat/completions',
-                method: 'POST',
-                timeout: 120000,
-                meta
-            });
+            apiResponse = await apiResponsePromise;
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;
@@ -241,7 +236,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
  * 适配器 manifest
  */
 export const manifest = {
-    id: 'zenmux_ai',
+    id: 'zenmux_ai_text',
     displayName: 'Zenmux AI (文本生成)',
     description: '使用 Zenmux AI 平台生成文本，支持多种大语言模型。需要已登录的 ZenMux 账户。',
 

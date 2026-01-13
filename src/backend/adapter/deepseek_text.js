@@ -4,10 +4,10 @@
 
 import {
     sleep,
+    humanType,
     safeClick
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -91,7 +91,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
         // 2. 配置模型功能 (thinking / search)
         const modelConfig = manifest.models.find(m => m.id === modelId);
@@ -99,19 +98,14 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await configureModel(page, modelConfig, meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
+        await sleep(300, 500);
 
-        // 4. 按回车发送
-        logger.debug('适配器', '按回车发送...', meta);
-        await page.keyboard.press('Enter');
-
-        logger.info('适配器', '等待生成结果...', meta);
-
-        // 5. 监听 chat/completion SSE 流，解析文本内容
-        logger.info('适配器', '监听 SSE 流获取文本...', meta);
+        // 4. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
 
         let textContent = '';
         let isComplete = false;
@@ -119,127 +113,136 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         let currentFragmentIndex = -1;   // 当前正在追加内容的 fragment 数组索引
         let fragmentCount = 0;           // fragments 数组的当前长度
 
-        try {
-            await page.waitForResponse(async (response) => {
-                const url = response.url();
-                if (!url.includes('chat/completion')) return false;
-                if (response.request().method() !== 'POST') return false;
-                if (response.status() !== 200) return false;
+        const responsePromise = page.waitForResponse(async (response) => {
+            const url = response.url();
+            if (!url.includes('chat/completion')) return false;
+            if (response.request().method() !== 'POST') return false;
+            if (response.status() !== 200) return false;
 
-                try {
-                    const body = await response.text();
-                    const lines = body.split('\n');
+            try {
+                const body = await response.text();
+                const lines = body.split('\n');
 
-                    for (const line of lines) {
-                        // 跳过事件行和空行
-                        if (line.startsWith('event:') || !line.startsWith('data:')) continue;
+                for (const line of lines) {
+                    // 跳过事件行和空行
+                    if (line.startsWith('event:') || !line.startsWith('data:')) continue;
 
-                        const dataStr = line.slice(5).trim();
-                        if (!dataStr || dataStr === '{}') continue;
+                    const dataStr = line.slice(5).trim();
+                    if (!dataStr || dataStr === '{}') continue;
 
-                        try {
-                            const data = JSON.parse(dataStr);
+                    try {
+                        const data = JSON.parse(dataStr);
 
-                            // 初始响应中可能已有 fragments (如 SEARCH)
-                            if (data.v?.response?.fragments && Array.isArray(data.v.response.fragments)) {
-                                for (const fragment of data.v.response.fragments) {
-                                    const idx = fragmentCount++;
-                                    if (fragment.type === 'RESPONSE') {
-                                        responseFragmentIndex = idx;
-                                        currentFragmentIndex = idx;
-                                        if (fragment.content) {
-                                            textContent += fragment.content;
-                                        }
-                                    } else {
-                                        currentFragmentIndex = idx;
+                        // 初始响应中可能已有 fragments (如 SEARCH)
+                        if (data.v?.response?.fragments && Array.isArray(data.v.response.fragments)) {
+                            for (const fragment of data.v.response.fragments) {
+                                const idx = fragmentCount++;
+                                if (fragment.type === 'RESPONSE') {
+                                    responseFragmentIndex = idx;
+                                    currentFragmentIndex = idx;
+                                    if (fragment.content) {
+                                        textContent += fragment.content;
                                     }
+                                } else {
+                                    currentFragmentIndex = idx;
                                 }
                             }
+                        }
 
-                            // 简单的文本追加 (只有 v 字符串，没有 p 和 o)
-                            // 只有当前活跃的 fragment 是 RESPONSE 类型时才收集
-                            if (data.v && typeof data.v === 'string' && !data.p && !data.o) {
-                                if (currentFragmentIndex === responseFragmentIndex && responseFragmentIndex >= 0) {
+                        // 简单的文本追加 (只有 v 字符串，没有 p 和 o)
+                        // 只有当前活跃的 fragment 是 RESPONSE 类型时才收集
+                        if (data.v && typeof data.v === 'string' && !data.p && !data.o) {
+                            if (currentFragmentIndex === responseFragmentIndex && responseFragmentIndex >= 0) {
+                                textContent += data.v;
+                            }
+                        }
+
+                        // 带路径的 APPEND 操作 (如 response/fragments/1/content)
+                        if (data.o === 'APPEND' && data.p && typeof data.v === 'string') {
+                            const match = data.p.match(/response\/fragments\/(\d+)\/content/);
+                            if (match) {
+                                const fragIdx = parseInt(match[1], 10);
+                                currentFragmentIndex = fragIdx;
+                                if (fragIdx === responseFragmentIndex) {
                                     textContent += data.v;
                                 }
                             }
-
-                            // 带路径的 APPEND 操作 (如 response/fragments/1/content)
-                            if (data.o === 'APPEND' && data.p && typeof data.v === 'string') {
-                                const match = data.p.match(/response\/fragments\/(\d+)\/content/);
-                                if (match) {
-                                    const fragIdx = parseInt(match[1], 10);
-                                    currentFragmentIndex = fragIdx;
-                                    if (fragIdx === responseFragmentIndex) {
-                                        textContent += data.v;
-                                    }
-                                }
-                            }
-
-                            // 不带操作符的路径设置 (如 {"v": "xxx", "p": "response/fragments/1/content"})
-                            if (data.p && typeof data.v === 'string' && !data.o) {
-                                const match = data.p.match(/response\/fragments\/(\d+)\/content/);
-                                if (match) {
-                                    const fragIdx = parseInt(match[1], 10);
-                                    currentFragmentIndex = fragIdx;
-                                    if (fragIdx === responseFragmentIndex) {
-                                        textContent += data.v;
-                                    }
-                                }
-                            }
-
-                            // fragments APPEND - 新增 fragment (非 BATCH)
-                            if (data.p === 'response/fragments' && data.o === 'APPEND' && Array.isArray(data.v)) {
-                                for (const fragment of data.v) {
-                                    const idx = fragmentCount++;
-                                    if (fragment.type === 'RESPONSE') {
-                                        responseFragmentIndex = idx;
-                                        currentFragmentIndex = idx;
-                                        if (fragment.content) {
-                                            textContent += fragment.content;
-                                        }
-                                    } else {
-                                        // THINK 或 SEARCH
-                                        currentFragmentIndex = idx;
-                                    }
-                                }
-                            }
-
-                            // BATCH 操作中的 fragments
-                            if (data.o === 'BATCH' && data.p === 'response' && Array.isArray(data.v)) {
-                                for (const item of data.v) {
-                                    // fragments 追加
-                                    if (item.p === 'fragments' && item.o === 'APPEND' && Array.isArray(item.v)) {
-                                        for (const fragment of item.v) {
-                                            const idx = fragmentCount++;
-                                            if (fragment.type === 'RESPONSE') {
-                                                responseFragmentIndex = idx;
-                                                currentFragmentIndex = idx;
-                                                if (fragment.content) {
-                                                    textContent += fragment.content;
-                                                }
-                                            } else {
-                                                // THINK 或 SEARCH
-                                                currentFragmentIndex = idx;
-                                            }
-                                        }
-                                    }
-                                    // 检查是否完成
-                                    if (item.p === 'status' && item.v === 'FINISHED') {
-                                        isComplete = true;
-                                    }
-                                }
-                            }
-                        } catch {
-                            // 忽略解析错误
                         }
-                    }
 
-                    return isComplete;
-                } catch {
-                    return false;
+                        // 不带操作符的路径设置 (如 {"v": "xxx", "p": "response/fragments/1/content"})
+                        if (data.p && typeof data.v === 'string' && !data.o) {
+                            const match = data.p.match(/response\/fragments\/(\d+)\/content/);
+                            if (match) {
+                                const fragIdx = parseInt(match[1], 10);
+                                currentFragmentIndex = fragIdx;
+                                if (fragIdx === responseFragmentIndex) {
+                                    textContent += data.v;
+                                }
+                            }
+                        }
+
+                        // fragments APPEND - 新增 fragment (非 BATCH)
+                        if (data.p === 'response/fragments' && data.o === 'APPEND' && Array.isArray(data.v)) {
+                            for (const fragment of data.v) {
+                                const idx = fragmentCount++;
+                                if (fragment.type === 'RESPONSE') {
+                                    responseFragmentIndex = idx;
+                                    currentFragmentIndex = idx;
+                                    if (fragment.content) {
+                                        textContent += fragment.content;
+                                    }
+                                } else {
+                                    // THINK 或 SEARCH
+                                    currentFragmentIndex = idx;
+                                }
+                            }
+                        }
+
+                        // BATCH 操作中的 fragments
+                        if (data.o === 'BATCH' && data.p === 'response' && Array.isArray(data.v)) {
+                            for (const item of data.v) {
+                                // fragments 追加
+                                if (item.p === 'fragments' && item.o === 'APPEND' && Array.isArray(item.v)) {
+                                    for (const fragment of item.v) {
+                                        const idx = fragmentCount++;
+                                        if (fragment.type === 'RESPONSE') {
+                                            responseFragmentIndex = idx;
+                                            currentFragmentIndex = idx;
+                                            if (fragment.content) {
+                                                textContent += fragment.content;
+                                            }
+                                        } else {
+                                            // THINK 或 SEARCH
+                                            currentFragmentIndex = idx;
+                                        }
+                                    }
+                                }
+                                // 检查是否完成
+                                if (item.p === 'status' && item.v === 'FINISHED') {
+                                    isComplete = true;
+                                }
+                            }
+                        }
+                    } catch {
+                        // 忽略解析错误
+                    }
                 }
-            }, { timeout: 180000 });
+
+                return isComplete;
+            } catch {
+                return false;
+            }
+        }, { timeout: 120000 });
+
+        // 5. 发送提示词
+        logger.debug('适配器', '发送提示词...', meta);
+        await page.keyboard.press('Enter');
+
+        logger.info('适配器', '等待生成结果...', meta);
+
+        // 6. 等待 API 响应
+        try {
+            await responsePromise;
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;
@@ -259,7 +262,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 顶层错误处理
         const pageError = normalizePageError(err, meta);
         if (pageError) return pageError;
-
         logger.error('适配器', '生成任务失败', { ...meta, error: err.message });
         return { error: `生成任务失败: ${err.message}` };
     } finally {

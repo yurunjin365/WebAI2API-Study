@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     normalizeHttpError,
     moveMouseAway,
@@ -41,14 +41,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, inputLocator, { click: false });
-        await sleep(1500, 2500);
 
         // 2. 上传图片
         if (imgPaths && imgPaths.length > 0) {
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
             logger.debug('适配器', '点击加号按钮...', meta);
             const uploadMenuBtn = page.getByRole('button', { name: 'Open upload file menu' });
             await safeClick(page, uploadMenuBtn, { bias: 'button' });
-            await sleep(500, 1000);
 
             const uploadFilesBtn = page.getByRole('button', { name: /Upload files/ });
             await uploadFilesViaChooser(page, uploadFilesBtn, imgPaths, {
@@ -59,16 +58,15 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                         url.includes('upload_id=');
                 }
             });
-
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, inputLocator, { bias: 'input' });
-        await fillPrompt(page, inputLocator, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, inputLocator, prompt);
 
-        // 4. 选择模型（如果指定了 modelId）
+        // 4. 选择模型
         if (modelId) {
             try {
                 logger.debug('适配器', `准备选择模型: ${modelId}`, meta);
@@ -83,11 +81,11 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 await page.keyboard.press('Tab');
                 await sleep(100, 200);
                 await page.keyboard.press('Tab');
-                await sleep(200, 300);
+                await sleep(100, 200);
 
                 // 按回车打开模型菜单
                 await page.keyboard.press('Enter');
-                await sleep(500, 800);
+                await sleep(300, 500);
 
                 // 获取所有 menuitemradio 选项
                 const menuItems = await page.getByRole('menuitemradio').all();
@@ -146,8 +144,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                         // 按 Escape 关闭菜单
                         await page.keyboard.press('Escape');
                     }
-
-                    await sleep(300, 500);
                 }
             } catch (e) {
                 logger.warn('适配器', `模型选择失败: ${e.message}，继续使用默认模型`, meta);
@@ -158,21 +154,25 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             }
         }
 
-        // 5. 点击发送
-        logger.debug('适配器', '点击发送...', meta);
+        // 5. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const apiResponsePromise = waitApiResponse(page, {
+            urlMatch: 'assistant.lamda.BardFrontendService/StreamGenerate',
+            method: 'POST',
+            timeout: 120000,
+            meta
+        });
+
+        // 6. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
         await safeClick(page, sendBtnLocator, { bias: 'button' });
 
         logger.info('适配器', '等待生成结果...', meta);
 
-        // 5. 等待 API 响应
+        // 7. 等待 API 响应
         let apiResponse;
         try {
-            apiResponse = await waitApiResponse(page, {
-                urlMatch: 'assistant.lamda.BardFrontendService/StreamGenerate',
-                method: 'POST',
-                timeout: 120000,
-                meta
-            });
+            apiResponse = await apiResponsePromise;
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;

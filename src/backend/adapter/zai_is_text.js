@@ -4,12 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     pasteImages
 } from '../engine/utils.js';
 import {
-    fillPrompt,
-    submit,
     normalizePageError,
     normalizeHttpError,
     waitApiResponse,
@@ -48,14 +47,12 @@ async function handleDiscordAuth(page) {
         try {
             // 等待页面加载完成，点击唯一的 button 标签
             await page.waitForSelector('button', { timeout: 30000 });
-            await sleep(1000, 1500);
             await safeClick(page, 'button', { bias: 'button' });
             logger.info('适配器', '[登录器(zai)] 已点击登录按钮，等待跳转到 Discord...');
 
             // 2. 等待跳转到 Discord OAuth2 授权页面
             await page.waitForURL(url => url.href.includes('discord.com/oauth2/authorize'), { timeout: 60000 });
             logger.info('适配器', '[登录器(zai)] 已到达 Discord 授权页面');
-            await sleep(2000, 3000);
 
             // 3. 使用鼠标滚轮滚动 main 元素，直到授权按钮可用
             // 授权按钮选择器: data-align="stretch" 的 div 中的最后一个按钮 (授权按钮在右边)
@@ -67,7 +64,7 @@ async function handleDiscordAuth(page) {
                     const isDisabled = await authorizeBtn.evaluate(el => el.disabled).catch(() => true);
                     if (!isDisabled) {
                         logger.info('适配器', '[登录器(zai)] 授权按钮已可用，正在点击...');
-                        await sleep(500, 1000);
+                        await sleep(300, 500);
                         await safeClick(page, authorizeBtn, { bias: 'button' });
                         break;
                     }
@@ -82,7 +79,6 @@ async function handleDiscordAuth(page) {
                         await page.mouse.wheel(0, 200);
                     }
                 }
-                await sleep(800, 1200);
             }
 
             // 4. 等待跳转回 zai.is (不包含 auth 和 discord)
@@ -95,7 +91,7 @@ async function handleDiscordAuth(page) {
             }, { timeout: 60000 });
 
             logger.info('适配器', '[登录器(zai)] Discord 登录完成');
-            await sleep(2000, 3000);
+            await sleep(500, 1000);
             unlockPageAuth(page);
             return true;
         } catch (err) {
@@ -152,13 +148,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 1. 等待输入框加载
         logger.debug('适配器', '正在寻找输入框...', meta);
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
         // 2. 上传图片 (如果有多张图片，会一张一张上传，每次都是 v1/files POST 请求)
         if (imgPaths && imgPaths.length > 0) {
             const expectedUploads = imgPaths.length;
             let uploadedCount = 0;
 
+            logger.info('适配器', `开始上传 ${expectedUploads} 张图片`, meta);
             await pasteImages(page, INPUT_SELECTOR, imgPaths, {
                 uploadValidator: (response) => {
                     const url = response.url();
@@ -173,13 +169,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 }
             });
 
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
         // 4. 通过 UI 交互选择模型
         const modelConfig = manifest.models.find(m => m.id === modelId);
@@ -190,9 +186,8 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 点击 "Select a models" 按钮
         const selectModelBtn = page.getByRole('button', { name: 'Select a model' });
         await selectModelBtn.waitFor({ timeout: 5000 });
-        await sleep(300, 500);
         await safeClick(page, selectModelBtn, { bias: 'button' });
-        await sleep(500, 800);
+        await sleep(300, 500);
 
         // 在 "Search In Models" 文本框中输入模型名称
         const searchInput = page.getByRole('textbox', { name: 'Search In Models' });
@@ -202,17 +197,12 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 按回车确认选择
         await searchInput.press('Enter');
-        await sleep(500, 1000);
 
         logger.info('适配器', `已选择模型: ${targetModel}`, meta);
 
-        // 5. 提交
-        logger.debug('适配器', '点击发送...', meta);
-        await submit(page, {
-            btnSelector: 'button[type="submit"]',
-            inputTarget: INPUT_SELECTOR,
-            meta
-        });
+        // 5. 发送提示词
+        logger.debug('适配器', '发送提示词...', meta);
+        await safeClick(page, 'button[type="submit"]', { bias: 'button' });
 
         logger.info('适配器', '等待生成结果中...', meta);
 

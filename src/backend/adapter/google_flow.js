@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -68,14 +68,12 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 1. 导航到入口页面
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
-        await sleep(1500, 2500);
 
-        // 2. 创建项目 - 点击 add_2 按钮
+        // 2. 创建项目
         logger.debug('适配器', '创建新项目...', meta);
         const addProjectBtn = page.getByRole('button', { name: /^add_2/ });
         await addProjectBtn.waitFor({ state: 'visible', timeout: 30000 });
         await safeClick(page, addProjectBtn, { bias: 'button' });
-        await sleep(1000, 1500);
 
         // 3. 选择 Images 模式 (通过 combobox + option 选择)
         logger.debug('适配器', '选择图片制作模式...', meta);
@@ -84,20 +82,18 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         });
         await modeCombo.first().waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, modeCombo.first(), { bias: 'button' });
-        await sleep(500, 800);
 
         const imageOption = page.getByRole('option').filter({
             has: page.locator('i', { hasText: 'add_photo_alternate' })
         });
         await safeClick(page, imageOption.first(), { bias: 'button' });
-        await sleep(1000, 1500);
 
         // 4. 打开 Tune 菜单进行配置
         logger.debug('适配器', '打开设置菜单...', meta);
         const tuneBtn = page.getByRole('button', { name: /^tune/ });
         await tuneBtn.waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, tuneBtn, { bias: 'button' });
-        await sleep(800, 1200);
+        await sleep(300, 500);
 
         // 4.1 设置生成数量为 1 (链式 filter：包含数字1-4，排除模型和尺寸关键词)
         logger.debug('适配器', '设置生成数量为 1...', meta);
@@ -110,7 +106,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await safeClick(page, countCombobox.first(), { bias: 'button' });
             await sleep(300, 500);
             await safeClick(page, page.getByRole('option', { name: '1' }), { bias: 'button' });
-            await sleep(300, 500);
             logger.debug('适配器', '生成数量已设置为 1', meta);
         } else {
             logger.warn('适配器', '未找到数量选择 combobox，跳过', meta);
@@ -125,7 +120,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await safeClick(page, modelCombobox.first(), { bias: 'button' });
             await sleep(300, 500);
             await safeClick(page, page.getByRole('option', { name: codeName, exact: true }), { bias: 'button' });
-            await sleep(300, 500);
             logger.debug('适配器', `模型已设置为 ${codeName}`, meta);
         }
 
@@ -139,7 +133,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await sleep(300, 500);
             const sizeOption = page.getByRole('option').filter({ hasText: imageSize });
             await safeClick(page, sizeOption.first(), { bias: 'button' });
-            await sleep(300, 500);
             logger.debug('适配器', `尺寸已设置为 ${imageSize}`, meta);
         }
 
@@ -152,15 +145,14 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 logger.debug('适配器', `上传图片 ${i + 1}/${imgPaths.length}...`, meta);
 
                 // 5.1 点击 add 按钮
+                await sleep(300, 500);
                 const addBtn = page.getByRole('button', { name: 'add' });
                 await addBtn.waitFor({ state: 'visible', timeout: 10000 });
                 await safeClick(page, addBtn, { bias: 'button' });
-                await sleep(500, 1000);
 
                 // 5.2 点击 upload 按钮并选择文件（不等待上传完成）
                 const uploadBtn = page.getByRole('button', { name: /^upload/ });
                 await uploadFilesViaChooser(page, uploadBtn, [imgPath]);
-                await sleep(500, 1000);
 
                 // 5.3 先启动上传监听，再点击 crop 按钮
                 const uploadResponsePromise = waitApiResponse(page, {
@@ -176,18 +168,16 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 // 5.4 等待上传完成
                 await uploadResponsePromise;
                 logger.info('适配器', `图片 ${i + 1} 上传完成`, meta);
-                await sleep(1000, 1500);
             }
 
-            logger.info('适配器', '所有图片上传完成', meta);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
         // 6. 输入提示词
         logger.info('适配器', '输入提示词...', meta);
         const textarea = page.locator('textarea[placeholder]');
         await waitForInput(page, textarea, { click: true });
-        await fillPrompt(page, textarea, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, textarea, prompt);
 
         // 7. 先启动 API 监听，再点击发送
         logger.debug('适配器', '启动 API 监听...', meta);
@@ -198,8 +188,8 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             meta
         });
 
-        // 8. 点击发送按钮
-        logger.info('适配器', '点击发送...', meta);
+        // 8. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
         const sendBtn = page.getByRole('button', { name: /^arrow_forward/ });
         await sendBtn.waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, sendBtn, { bias: 'button' });

@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -39,9 +39,8 @@ async function selectModel(page, codeName, meta = {}) {
         }
 
         await modelSelectorBtn.waitFor({ timeout: 5000 });
-        await sleep(300, 500);
         await safeClick(page, modelSelectorBtn, { bias: 'button' });
-        await sleep(500, 800);
+        await sleep(300, 500);
 
         // 2. 检查是否有 Legacy models 选项
         const legacyMenuItem = page.getByRole('menuitem', { name: /^Legacy models/ });
@@ -49,7 +48,7 @@ async function selectModel(page, codeName, meta = {}) {
         if (legacyExists > 0) {
             logger.debug('适配器', '发现 Legacy models 选项，正在点击...', meta);
             await safeClick(page, legacyMenuItem, { bias: 'button' });
-            await sleep(500, 800);
+            await sleep(300, 500);
         }
 
         // 3. 查找匹配 codeName 开头的 menuitem
@@ -58,13 +57,11 @@ async function selectModel(page, codeName, meta = {}) {
         if (targetExists > 0) {
             logger.info('适配器', `正在选择模型: ${codeName}`, meta);
             await safeClick(page, targetMenuItem, { bias: 'button' });
-            await sleep(500, 1000);
             return true;
         } else {
             logger.debug('适配器', `未找到模型 ${codeName}，使用默认模型`, meta);
             // 点击空白区域关闭菜单
             await page.keyboard.press('Escape');
-            await sleep(300, 500);
             return false;
         }
     } catch (e) {
@@ -94,7 +91,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
         // 2. 选择模型
         const modelConfig = manifest.models.find(m => m.id === modelId);
@@ -105,6 +101,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 3. 上传图片 (双击 Add files and more 按钮)
         if (imgPaths && imgPaths.length > 0) {
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
             const expectedUploads = imgPaths.length;
             let uploadedCount = 0;
             let processedCount = 0;
@@ -136,17 +133,15 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                     return false;
                 }
             });
-
-            await sleep(1000, 2000);
         }
 
-        // 4. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
-        // 5. 点击发送
-        logger.debug('适配器', '点击发送...', meta);
+        // 5. 发送提示词
+        logger.debug('适配器', '发送提示词...', meta);
         await safeClick(page, sendBtnLocator, { bias: 'button' });
 
         logger.info('适配器', '等待生成结果...', meta);
@@ -230,7 +225,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 } catch {
                     return false;
                 }
-            }, { timeout: 180000 });
+            }, { timeout: 120000 });
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;

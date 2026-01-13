@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -33,12 +33,6 @@ const INPUT_SELECTOR = 'textarea';
 async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     const { page } = context;
 
-    // 只使用第一张图片
-    const singleImgPath = imgPaths && imgPaths.length > 0 ? [imgPaths[0]] : [];
-    if (imgPaths && imgPaths.length > 1) {
-        logger.warn('适配器', `Sora 只支持一张图片，已丢弃 ${imgPaths.length - 1} 张`, meta);
-    }
-
     // 用于存储任务 ID 和视频 URL
     let taskId = null;
     let videoUrl = null;
@@ -49,10 +43,15 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 1. 等待输入框加载
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
-        // 2. 上传图片 (如果有)
-        if (singleImgPath.length > 0) {
+        // 2. 上传图片 (仅取第一张)
+        if (imgPaths && imgPaths.length > 0) {
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片`, meta);
+            const singleImgPath = [imgPaths[0]];
+            if (imgPaths.length > 1) {
+                logger.warn('适配器', `此后端仅支持1张图片，已丢弃 ${imgPaths.length - 1} 张`, meta);
+            }
+
             logger.debug('适配器', '点击上传文件按钮...', meta);
             const attachBtn = page.getByRole('button', { name: 'Attach media' });
 
@@ -60,20 +59,18 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 uploadValidator: (response) => {
                     const url = response.url();
                     if (response.status() === 200 && url.includes('project_y/file/upload')) {
-                        logger.info('适配器', '图片上传完成', meta);
                         return true;
                     }
                     return false;
                 }
             });
-
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词
+        // 3. 输入提示词
+        logger.info('适配器', '输入提示词...', meta);
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
         // 4. 提前设置响应监听器 (drafts 接口)
         // 因为 drafts 请求在 pending/v2 检测到任务消失后立即出现，需要提前监听
@@ -89,7 +86,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         };
 
         // 5. 点击 Create video 按钮并监听 nf/create 请求
-        logger.debug('适配器', '点击创建视频...', meta);
+        logger.debug('适配器', '设置监听器视频...', meta);
         const createBtn = page.getByRole('button', { name: 'Create video' });
 
         // 设置 create 请求监听
@@ -101,6 +98,8 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             return true;
         }, { timeout: 60000 });
 
+        // 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
         await safeClick(page, createBtn, { bias: 'button' });
 
         // 等待 create 响应

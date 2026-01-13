@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -39,30 +39,27 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     try {
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
-        await sleep(1500, 2500);
 
         // 1. 点击进入图片生成模式
         logger.debug('适配器', '进入图片生成模式...', meta);
         const skillBtn = page.locator('button[data-testid="skill_bar_button_3"]');
         await skillBtn.waitFor({ state: 'visible', timeout: 30000 });
         await safeClick(page, skillBtn, { bias: 'button' });
-        await sleep(1000, 1500);
 
         // 2. 选择模型
         logger.debug('适配器', `选择模型: ${codeName}...`, meta);
         const modelBtn = page.locator('button[data-testid="image-creation-chat-input-picture-model-button"]');
         await modelBtn.waitFor({ state: 'visible', timeout: 10000 });
         await safeClick(page, modelBtn, { bias: 'button' });
-        await sleep(500, 800);
+        await sleep(300, 500);
 
         const modelOption = page.getByRole('menuitem', { name: codeName });
         await modelOption.waitFor({ state: 'visible', timeout: 5000 });
         await safeClick(page, modelOption, { bias: 'button' });
-        await sleep(500, 800);
 
         // 3. 上传参考图片 (如果有)
         if (imgPaths && imgPaths.length > 0) {
-            logger.info('适配器', `开始上传 ${imgPaths.length} 张参考图片...`, meta);
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
 
             const uploadBtn = page.locator('button[data-testid="image-creation-chat-input-picture-reference-button"]');
             await uploadBtn.waitFor({ state: 'visible', timeout: 10000 });
@@ -76,15 +73,13 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
                 }
             });
 
-            logger.info('适配器', '参考图片上传完成', meta);
-            await sleep(1000, 1500);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
         // 4. 填写提示词
         const inputLocator = page.locator('div[data-testid="chat_input_input"][role="textbox"]');
         await waitForInput(page, inputLocator, { click: true });
-        await fillPrompt(page, inputLocator, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, inputLocator, prompt);
 
         // 5. 设置 SSE 监听
         logger.debug('适配器', '启动 SSE 监听...', meta);

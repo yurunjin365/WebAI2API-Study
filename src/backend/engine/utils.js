@@ -152,15 +152,18 @@ export function getHumanClickPoint(box, type = 'random') {
 }
 
 /**
- * 安全点击元素 (包含拟人化移动和点击)
+ * 安全点击元素 (包含滚动、拟人化移动和点击)
  * 支持 CSS selector、ElementHandle 和 Locator 三种输入
  * @param {import('playwright-core').Page} page - Playwright 页面对象
  * @param {string|import('playwright-core').ElementHandle|import('playwright-core').Locator} target - CSS 选择器、元素句柄或 Locator
  * @param {object} [options] - 点击选项
  * @param {string} [options.bias='random'] - 偏移偏好: 'input' 或 'random'
+ * @param {number} [options.clickCount=1] - 点击次数: 1=单击, 2=双击
  * @returns {Promise<void>}
  */
 export async function safeClick(page, target, options = {}) {
+    const clickCount = options.clickCount || 1;
+
     try {
         let el;
 
@@ -179,13 +182,16 @@ export async function safeClick(page, target, options = {}) {
             if (!el || !el.asElement()) throw new Error(`Element handle invalid`);
         }
 
+        // 确保元素在可视区域内
+        await el.scrollIntoViewIfNeeded().catch(() => { });
+
         // 使用 ghost-cursor 点击
         if (page.cursor) {
             const box = await el.boundingBox();
             if (box) {
                 const { x, y } = getHumanClickPoint(box, options.bias || 'random');
                 await page.cursor.moveTo({ x, y });
-                await page.mouse.click(x, y);
+                await page.mouse.click(x, y, { clickCount });
                 return;
             }
             // 如果无法获取 box，降级到默认点击
@@ -194,7 +200,7 @@ export async function safeClick(page, target, options = {}) {
         }
 
         // 降级逻辑
-        await el.click();
+        await el.click({ clickCount });
     } catch (err) {
         throw err;
     }
@@ -406,7 +412,7 @@ export async function pasteImages(page, target, filePaths, options = {}) {
 
     // 1. 拟人化: 先点击一下目标区域 (让后台看起来像是用户聚焦了输入框)
     await safeClick(page, target, { bias: 'input' });
-    await sleep(500, 1000);
+    await sleep(300, 500);
 
     try {
         logger.debug('浏览器', '正在深度扫描文件上传控件...');
@@ -480,7 +486,7 @@ export async function pasteImages(page, target, filePaths, options = {}) {
         } else {
             // 默认行为: 等待上传预览出现
             logger.info('浏览器', `已提交图片, 等待预览生成...`);
-            await sleep(2000, 4000);
+            await sleep(500, 1000);
         }
 
     } catch (e) {
@@ -497,12 +503,14 @@ export async function pasteImages(page, target, filePaths, options = {}) {
  * @param {Object} [options] - 可选配置
  * @param {Function} [options.uploadValidator] - 自定义上传确认回调函数, 接收 response 参数，返回 true 表示该响应代表一次成功上传
  * @param {number} [options.timeout=60000] - 上传超时时间 (毫秒)
+ * @param {string} [options.clickAction='click'] - 点击动作: 'click' 或 'dblclick'
  * @returns {Promise<void>}
  */
 export async function uploadFilesViaChooser(page, triggerTarget, filePaths, options = {}) {
     if (!filePaths || filePaths.length === 0) return;
 
     const timeout = options.timeout || 60000;
+    const clickAction = options.clickAction || 'click';
     const expectedUploads = filePaths.length;
     let uploadedCount = 0;
 
@@ -544,8 +552,9 @@ export async function uploadFilesViaChooser(page, triggerTarget, filePaths, opti
     // 设置等待 filechooser 事件（在点击之前）
     const fileChooserPromise = page.waitForEvent('filechooser');
 
-    // 点击触发按钮
-    await safeClick(page, triggerTarget, { bias: 'button' });
+    // 点击触发按钮（支持单击或双击）
+    const clickCount = clickAction === 'dblclick' ? 2 : 1;
+    await safeClick(page, triggerTarget, { bias: 'button', clickCount });
 
     // 等待 filechooser 事件并设置文件
     const fileChooser = await fileChooserPromise;

@@ -4,11 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     uploadFilesViaChooser
 } from '../engine/utils.js';
 import {
-    fillPrompt,
     normalizePageError,
     moveMouseAway,
     waitForInput,
@@ -37,21 +37,19 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     try {
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
-        await sleep(1500, 2500);
 
         // 1. 等待输入框加载
         const inputLocator = page.locator('textarea[data-testid="chat_input_input"]');
         await waitForInput(page, inputLocator, { click: false });
-        await sleep(500, 1000);
 
         // 2. 上传图片 (如果有)
         if (imgPaths && imgPaths.length > 0) {
             logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
 
             // 点击上传菜单按钮
-            const uploadMenuBtn = page.locator('button[aria-haspopup="menu"]').first();
+            const uploadMenuBtn = page.locator('main button[aria-haspopup="menu"]').first();
             await safeClick(page, uploadMenuBtn, { bias: 'button' });
-            await sleep(500, 1000);
+            await sleep(300, 500);
 
             // 点击上传文件选项
             const uploadItem = page.locator('div[data-testid="upload_file_panel_upload_item"][role="menuitem"]');
@@ -65,7 +63,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             });
 
             logger.info('适配器', '图片上传完成', meta);
-            await sleep(1000, 1500);
         }
 
         // 3. 切换深度思考模式 (如需)
@@ -78,18 +75,15 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             if (useThinking && !isChecked) {
                 logger.debug('适配器', '启用深度思考模式...', meta);
                 await safeClick(page, deepThinkBtn, { bias: 'button' });
-                await sleep(500, 800);
             } else if (!useThinking && isChecked) {
                 logger.debug('适配器', '关闭深度思考模式...', meta);
                 await safeClick(page, deepThinkBtn, { bias: 'button' });
-                await sleep(500, 800);
             }
         }
 
         // 4. 填写提示词
         await safeClick(page, inputLocator, { bias: 'input' });
-        await fillPrompt(page, inputLocator, prompt, meta);
-        await sleep(500, 1000);
+        await humanType(page, inputLocator, prompt);
 
         // 5. 设置 SSE 监听
         logger.debug('适配器', '启动 SSE 监听...', meta);

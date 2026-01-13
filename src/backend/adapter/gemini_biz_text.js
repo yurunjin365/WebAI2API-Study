@@ -4,12 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     pasteImages
 } from '../engine/utils.js';
 import {
-    fillPrompt,
-    submit,
     normalizePageError,
     normalizeHttpError,
     waitApiResponse,
@@ -110,7 +109,6 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 开启新对话 - 先等待可能正在进行的登录处理完成
         await waitForPageAuth(page);
-
         logger.info('适配器', '开启新会话', meta);
         await gotoWithCheck(page, targetUrl);
 
@@ -120,42 +118,24 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 1. 等待输入框加载
         logger.debug('适配器', '正在寻找输入框...', meta);
         await waitForInput(page, INPUT_SELECTOR, { click: false });
-        await sleep(1500, 2500);
 
-        // 2. 上传图片 (uploadImages - 使用自定义验证器)
+        // 2. 上传图片
         if (imgPaths && imgPaths.length > 0) {
-            const expectedUploads = imgPaths.length;
-            let uploadedCount = 0;
-            let metadataCount = 0;
-
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片...`, meta);
             await pasteImages(page, INPUT_SELECTOR, imgPaths, {
                 uploadValidator: (response) => {
                     const url = response.url();
-                    if (response.status() === 200) {
-                        if (url.includes('global/widgetAddContextFile')) {
-                            uploadedCount++;
-                            logger.debug('适配器', `图片上传进度 (Add): ${uploadedCount}/${expectedUploads}`, meta);
-                            return false;
-                        } else if (url.includes('global/widgetListSessionFileMetadata')) {
-                            metadataCount++;
-                            logger.info('适配器', `图片上传进度: ${metadataCount}/${expectedUploads}`, meta);
-
-                            if (uploadedCount >= expectedUploads && metadataCount >= expectedUploads) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
+                    // 只追踪 widgetAddContextFile 请求，每个请求代表一张图片上传
+                    return response.status() === 200 && url.includes('global/widgetAddContextFile');
                 }
             });
-
-            await sleep(1000, 2000);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 3. 填写提示词 (fillPrompt)
+        // 3. 输入提示词 
         await safeClick(page, INPUT_SELECTOR, { bias: 'input' });
-        await fillPrompt(page, INPUT_SELECTOR, prompt, meta);
-        await sleep(500, 1000);
+        logger.info('适配器', '输入提示词...', meta);
+        await humanType(page, INPUT_SELECTOR, prompt);
 
         // 4. 设置请求拦截器（根据模型类型修改请求）
         logger.debug('适配器', '已启用请求拦截', meta);
@@ -163,7 +143,10 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
         // 判断是否为 grounding 模式
         const isGrounding = modelId.endsWith('-grounding');
-        const actualModelId = isGrounding ? modelId.replace('-grounding', '') : modelId;
+        // 从 models 列表中查找对应的 codeName
+        const modelConfig = manifest.models.find(m => m.id === modelId);
+        const baseCodeName = modelConfig?.codeName || modelId;
+        const actualModelId = isGrounding ? baseCodeName : baseCodeName;
 
         await page.route(url => url.href.includes('global/widgetStreamAssist'), async (route) => {
             const request = route.request();
@@ -198,26 +181,26 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
             await route.continue();
         });
 
-        // 5. 提交 (submit - 使用公共函数)
-        logger.debug('适配器', '点击发送...', meta);
-        await submit(page, {
-            btnSelector: 'md-icon-button.send-button.submit, button[aria-label="提交"], button[aria-label="Send"], .send-button',
-            inputTarget: INPUT_SELECTOR,
+        // 5. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const apiResponsePromise = waitApiResponse(page, {
+            urlMatch: 'global/widgetStreamAssist',
+            method: 'POST',
+            timeout: 120000,
+            errorText: ['modelArmorViolation'],
             meta
         });
 
+        // 6. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
+        await safeClick(page, 'md-icon-button.send-button.submit, button[aria-label="Send"], .send-button', { bias: 'button' });
+
         logger.info('适配器', '等待生成结果中...', meta);
 
-        // 6. 等待 API 响应
+        // 7. 等待 API 响应
         let apiResponse;
         try {
-            apiResponse = await waitApiResponse(page, {
-                urlMatch: 'global/widgetStreamAssist',
-                method: 'POST',
-                timeout: 120000,
-                errorText: ['modelArmorViolation'],
-                meta
-            });
+            apiResponse = await apiResponsePromise;
         } catch (e) {
             const pageError = normalizePageError(e, meta);
             if (pageError) return pageError;
@@ -330,14 +313,14 @@ export const manifest = {
 
     // 模型列表
     models: [
-        { id: 'gemini-3-pro', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-2.5-pro', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-3-flash-preview', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-2.5-flash', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-3-pro-grounding', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-2.5-pro-grounding', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-2.5-flash-grounding', imagePolicy: 'optional', type: 'text' },
-        { id: 'gemini-3-flash-preview-grounding', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-3-pro', codeName: 'gemini-3-pro-preview', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-2.5-pro', codeName: 'gemini-2.5pro', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-3-flash-preview', codeName: 'gemini-3-pro-preview', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-2.5-flash', codeName: 'gemini-2.5-flash', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-3-pro-grounding', codeName: 'gemini-3-pro-preview', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-2.5-pro-grounding', codeName: 'gemini-2.5-pro', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-2.5-flash-grounding', codeName: 'gemini-2.5-flash', imagePolicy: 'optional', type: 'text' },
+        { id: 'gemini-3-flash-preview-grounding', codeName: 'gemini-3-flash-preview', imagePolicy: 'optional', type: 'text' },
     ],
 
     // 导航处理器

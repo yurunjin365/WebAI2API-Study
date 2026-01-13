@@ -38,7 +38,7 @@ try {
 } catch (err) {
     logger.error('服务器', '配置加载失败', { error: err.message });
     logger.error('服务器', '请先初始化配置：复制 config.example.yaml 为 config.yaml');
-    process.exit(1);
+    process.exit(78);  // 使用 78 退出码，supervisor 不会自动重启
 }
 
 const {

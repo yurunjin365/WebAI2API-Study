@@ -4,12 +4,11 @@
 
 import {
     sleep,
+    humanType,
     safeClick,
     pasteImages
 } from '../engine/utils.js';
 import {
-    fillPrompt,
-    submit,
     waitApiResponse,
     normalizePageError,
     normalizeHttpError,
@@ -56,19 +55,14 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
     const { page, config } = context;
     const textareaSelector = 'textarea';
 
-    // Worker 已验证，直接解析模型配置
-    //const modelConfig = manifest.models.find(m => m.id === modelId);
-    //const codeName = modelConfig?.codeName;
-
     try {
         logger.info('适配器', '开启新会话...', meta);
         await gotoWithCheck(page, TARGET_URL);
 
         // 1. 等待输入框加载
         await waitForInput(page, textareaSelector, { click: false });
-        await sleep(1500, 2500);
 
-        // 2. 选择模型(必须在上传图片之前,因为能否上传图片取决于模型 imagePolicy)
+        // 2. 选择模型
         if (modelId) {
             logger.debug('适配器', `选择模型: ${modelId}`, meta);
             const modelCombobox = page.locator('#chat-area')
@@ -77,45 +71,53 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
 
             await modelCombobox.waitFor({ state: 'visible', timeout: 10000 });
             await safeClick(page, modelCombobox, { bias: 'button' });
-            await sleep(500, 800);
 
-            // 模拟粘贴输入模型 ID 并回车
+            // 模拟粘贴输入模型 ID
             await page.evaluate((text) => {
                 document.execCommand('insertText', false, text);
             }, modelId);
-            await sleep(300, 500);
+
+            // 等待下拉选项出现后再按回车
+            try {
+                await page.waitForSelector('[role="option"]', { timeout: 5000 });
+            } catch {
+                // 超时也继续，可能选项已经存在
+            }
+            await sleep(200, 300);
             await page.keyboard.press('Enter');
-            await sleep(500, 800);
         }
 
-        // 3. 上传图片 (uploadImages)
+        // 3. 上传图片
         if (imgPaths && imgPaths.length > 0) {
+            logger.info('适配器', `开始上传 ${imgPaths.length} 张图片`, meta);
             await pasteImages(page, textareaSelector, imgPaths);
+            logger.info('适配器', '图片上传完成', meta);
         }
 
-        // 4. 填写提示词 (fillPrompt)
+        // 4. 输入提示词
         await safeClick(page, textareaSelector, { bias: 'input' });
-        await fillPrompt(page, textareaSelector, prompt, meta);
+        logger.info('适配器', '输入提示词...', meta);
+        await humanType(page, textareaSelector, prompt);
 
-        // 5. 提交表单 (submit)
-        logger.debug('适配器', '点击发送...', meta);
-        await submit(page, {
-            btnSelector: 'button[type="submit"]',
-            inputTarget: textareaSelector,
+        // 5. 先启动 API 监听
+        logger.debug('适配器', '启动 API 监听...', meta);
+        const responsePromise = waitApiResponse(page, {
+            urlMatch: '/nextjs-api/stream',
+            method: 'POST',
+            timeout: 120000,
             meta
         });
 
+        // 6. 发送提示词
+        logger.info('适配器', '发送提示词...', meta);
+        await safeClick(page, 'button[type="submit"]', { bias: 'button' });
+
         logger.info('适配器', '等待生成结果...', meta);
 
-        // 6. 等待 API 响应 (waitApiResponse)
+        // 7. 等待 API 响应
         let response;
         try {
-            response = await waitApiResponse(page, {
-                urlMatch: '/nextjs-api/stream',
-                method: 'POST',
-                timeout: 120000,
-                meta
-            });
+            response = await responsePromise;
         } catch (e) {
             // 使用公共错误处理
             const pageError = normalizePageError(e, meta);
@@ -126,7 +128,7 @@ async function generate(context, prompt, imgPaths, modelId, meta = {}) {
         // 7. 解析响应结果
         const content = await response.text();
 
-        // 8. 检查 HTTP 错误 (normalizeHttpError)
+        // 8. 检查 HTTP 错误
         const httpError = normalizeHttpError(response, content);
         if (httpError) {
             logger.error('适配器', `请求生成时返回错误: ${httpError.error}`, meta);
